@@ -4,6 +4,7 @@ import (
 	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/kubernetes/pkg/labels"
 	"k8s.io/kubernetes/pkg/watch"
+	"k8s.io/kubernetes/pkg/apis/extensions"
 
 	deployapi "github.com/openshift/origin/pkg/deploy/api"
 )
@@ -23,6 +24,8 @@ type DeploymentConfigInterface interface {
 	Watch(label labels.Selector, field fields.Selector, resourceVersion string) (watch.Interface, error)
 	Generate(name string) (*deployapi.DeploymentConfig, error)
 	Rollback(config *deployapi.DeploymentConfigRollback) (*deployapi.DeploymentConfig, error)
+	GetScale(name string) (*extensions.Scale, error)
+	UpdateScale(scale *extensions.Scale) (*extensions.Scale, error)
 }
 
 // deploymentConfigs implements DeploymentConfigsNamespacer interface
@@ -105,5 +108,19 @@ func (c *deploymentConfigs) Rollback(config *deployapi.DeploymentConfigRollback)
 		Body(config).
 		Do().
 		Into(result)
+	return
+}
+
+// Get returns information about a particular deploymentConfig
+func (c *deploymentConfigs) GetScale(name string) (result *extensions.Scale, err error) {
+	result = &extensions.Scale{}
+	err = c.r.Get().Namespace(c.ns).Resource("deploymentConfigs").Name(name).SubResource("scale").Do().Into(result)
+	return
+}
+
+// Update updates an existing deploymentConfig
+func (c *deploymentConfigs) UpdateScale(scale *extensions.Scale) (result *extensions.Scale, err error) {
+	result = &extensions.Scale{}
+	err = c.r.Put().Namespace(c.ns).Resource("deploymentConfigs").Name(scale.Name).SubResource("scale").Body(scale).Do().Into(result)
 	return
 }
