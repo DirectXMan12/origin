@@ -11,6 +11,7 @@ func init() {
 		&DeploymentConfigRollback{},
 		&DeploymentLog{},
 		&DeploymentLogOptions{},
+		&Scale{},
 	)
 }
 
@@ -19,3 +20,4 @@ func (*DeploymentConfigList) IsAnAPIObject()     {}
 func (*DeploymentConfigRollback) IsAnAPIObject() {}
 func (*DeploymentLog) IsAnAPIObject()            {}
 func (*DeploymentLogOptions) IsAnAPIObject()     {}
+func (*Scale) IsAnAPIObject() {}

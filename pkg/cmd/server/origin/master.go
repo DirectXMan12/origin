@@ -332,8 +332,8 @@ func (c *MasterConfig) GetRestStorage() map[string]rest.Storage {
 	buildConfigStorage := buildconfigetcd.NewStorage(c.EtcdHelper)
 	buildConfigRegistry := buildconfigregistry.NewRegistry(buildConfigStorage)
 
-	deployConfigStorage := deployconfigetcd.NewStorage(c.EtcdHelper)
-	deployConfigRegistry := deployconfigregistry.NewRegistry(deployConfigStorage)
+	deployConfigStorage := deployconfigetcd.NewStorage(c.EtcdHelper, c.DeploymentConfigScaleClient())
+	deployConfigRegistry := deployconfigregistry.NewRegistry(deployConfigStorage.DeploymentConfig)
 
 	routeAllocator := c.RouteAllocator()
 
@@ -437,7 +437,8 @@ func (c *MasterConfig) GetRestStorage() map[string]rest.Storage {
 		"imageStreamMappings": imageStreamMappingStorage,
 		"imageStreamTags":     imageStreamTagStorage,
 
-		"deploymentConfigs":         deployConfigStorage,
+		"deploymentConfigs":         deployConfigStorage.DeploymentConfig,
+		"deploymentConfigs/scale":   deployConfigStorage.Scale,
 		"generateDeploymentConfigs": deployconfiggenerator.NewREST(deployConfigGenerator, c.EtcdHelper.Codec()),
 		"deploymentConfigRollbacks": deployrollback.NewREST(deployRollbackClient, c.EtcdHelper.Codec()),
 		"deploymentConfigs/log":     deploylogregistry.NewREST(configClient, kclient, c.DeploymentLogClient(), kubeletClient),

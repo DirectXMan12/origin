@@ -25,6 +25,7 @@ import (
 	pkgapi "k8s.io/kubernetes/pkg/api"
 	resource "k8s.io/kubernetes/pkg/api/resource"
 	pkgapiv1 "k8s.io/kubernetes/pkg/api/v1"
+	extensions "k8s.io/kubernetes/pkg/apis/extensions"
 	conversion "k8s.io/kubernetes/pkg/conversion"
 	reflect "reflect"
 )
@@ -2667,6 +2668,61 @@ func convert_v1_DeploymentLogOptions_To_api_DeploymentLogOptions(in *deployapiv1
 	return autoconvert_v1_DeploymentLogOptions_To_api_DeploymentLogOptions(in, out, s)
 }
 
+func autoconvert_v1_Scale_To_extensions_Scale(in *deployapiv1.Scale, out *extensions.Scale, s conversion.Scope) error {
+	if defaulting, found := s.DefaultingInterface(reflect.TypeOf(*in)); found {
+		defaulting.(func(*deployapiv1.Scale))(in)
+	}
+	if err := s.Convert(&in.TypeMeta, &out.TypeMeta, 0); err != nil {
+		return err
+	}
+	if err := convert_v1_ObjectMeta_To_api_ObjectMeta(&in.ObjectMeta, &out.ObjectMeta, s); err != nil {
+		return err
+	}
+	if err := convert_v1_ScaleSpec_To_extensions_ScaleSpec(&in.Spec, &out.Spec, s); err != nil {
+		return err
+	}
+	if err := convert_v1_ScaleStatus_To_extensions_ScaleStatus(&in.Status, &out.Status, s); err != nil {
+		return err
+	}
+	return nil
+}
+
+func convert_v1_Scale_To_extensions_Scale(in *deployapiv1.Scale, out *extensions.Scale, s conversion.Scope) error {
+	return autoconvert_v1_Scale_To_extensions_Scale(in, out, s)
+}
+
+func autoconvert_v1_ScaleSpec_To_extensions_ScaleSpec(in *deployapiv1.ScaleSpec, out *extensions.ScaleSpec, s conversion.Scope) error {
+	if defaulting, found := s.DefaultingInterface(reflect.TypeOf(*in)); found {
+		defaulting.(func(*deployapiv1.ScaleSpec))(in)
+	}
+	out.Replicas = in.Replicas
+	return nil
+}
+
+func convert_v1_ScaleSpec_To_extensions_ScaleSpec(in *deployapiv1.ScaleSpec, out *extensions.ScaleSpec, s conversion.Scope) error {
+	return autoconvert_v1_ScaleSpec_To_extensions_ScaleSpec(in, out, s)
+}
+
+func autoconvert_v1_ScaleStatus_To_extensions_ScaleStatus(in *deployapiv1.ScaleStatus, out *extensions.ScaleStatus, s conversion.Scope) error {
+	if defaulting, found := s.DefaultingInterface(reflect.TypeOf(*in)); found {
+		defaulting.(func(*deployapiv1.ScaleStatus))(in)
+	}
+	out.Replicas = in.Replicas
+	if in.Selector != nil {
+		out.Selector = make(map[string]string)
+		for key, val := range in.Selector {
+			out.Selector[key] = val
+		}
+	} else {
+		out.Selector = nil
+	}
+	return nil
+}
+
+func convert_v1_ScaleStatus_To_extensions_ScaleStatus(in *deployapiv1.ScaleStatus, out *extensions.ScaleStatus, s conversion.Scope) error {
+	return autoconvert_v1_ScaleStatus_To_extensions_ScaleStatus(in, out, s)
+}
+
 func autoconvert_api_Image_To_v1_Image(in *imageapi.Image, out *imageapiv1.Image, s conversion.Scope) error {
 	if defaulting, found := s.DefaultingInterface(reflect.TypeOf(*in)); found {
 		defaulting.(func(*imageapi.Image))(in)
@@ -5069,6 +5125,61 @@ func convert_v1_ResourceRequirements_To_api_ResourceRequirements(in *pkgapiv1.Re
 	return autoconvert_v1_ResourceRequirements_To_api_ResourceRequirements(in, out, s)
 }
 
+func autoconvert_extensions_Scale_To_v1_Scale(in *extensions.Scale, out *deployapiv1.Scale, s conversion.Scope) error {
+	if defaulting, found := s.DefaultingInterface(reflect.TypeOf(*in)); found {
+		defaulting.(func(*extensions.Scale))(in)
+	}
+	if err := s.Convert(&in.TypeMeta, &out.TypeMeta, 0); err != nil {
+		return err
+	}
+	if err := convert_api_ObjectMeta_To_v1_ObjectMeta(&in.ObjectMeta, &out.ObjectMeta, s); err != nil {
+		return err
+	}
+	if err := convert_extensions_ScaleSpec_To_v1_ScaleSpec(&in.Spec, &out.Spec, s); err != nil {
+		return err
+	}
+	if err := convert_extensions_ScaleStatus_To_v1_ScaleStatus(&in.Status, &out.Status, s); err != nil {
+		return err
+	}
+	return nil
+}
+
+func convert_extensions_Scale_To_v1_Scale(in *extensions.Scale, out *deployapiv1.Scale, s conversion.Scope) error {
+	return autoconvert_extensions_Scale_To_v1_Scale(in, out, s)
+}
+
+func autoconvert_extensions_ScaleSpec_To_v1_ScaleSpec(in *extensions.ScaleSpec, out *deployapiv1.ScaleSpec, s conversion.Scope) error {
+	if defaulting, found := s.DefaultingInterface(reflect.TypeOf(*in)); found {
+		defaulting.(func(*extensions.ScaleSpec))(in)
+	}
+	out.Replicas = in.Replicas
+	return nil
+}
+
+func convert_extensions_ScaleSpec_To_v1_ScaleSpec(in *extensions.ScaleSpec, out *deployapiv1.ScaleSpec, s conversion.Scope) error {
+	return autoconvert_extensions_ScaleSpec_To_v1_ScaleSpec(in, out, s)
+}
+
+func autoconvert_extensions_ScaleStatus_To_v1_ScaleStatus(in *extensions.ScaleStatus, out *deployapiv1.ScaleStatus, s conversion.Scope) error {
+	if defaulting, found := s.DefaultingInterface(reflect.TypeOf(*in)); found {
+		defaulting.(func(*extensions.ScaleStatus))(in)
+	}
+	out.Replicas = in.Replicas
+	if in.Selector != nil {
+		out.Selector = make(map[string]string)
+		for key, val := range in.Selector {
+			out.Selector[key] = val
+		}
+	} else {
+		out.Selector = nil
+	}
+	return nil
+}
+
+func convert_extensions_ScaleStatus_To_v1_ScaleStatus(in *extensions.ScaleStatus, out *deployapiv1.ScaleStatus, s conversion.Scope) error {
+	return autoconvert_extensions_ScaleStatus_To_v1_ScaleStatus(in, out, s)
+}
+
 func init() {
 	err := pkgapi.Scheme.AddGeneratedConversionFuncs(
 		autoconvert_api_BinaryBuildRequestOptions_To_v1_BinaryBuildRequestOptions,
@@ -5179,6 +5290,9 @@ func init() {
 		autoconvert_api_UserList_To_v1_UserList,
 		autoconvert_api_User_To_v1_User,
 		autoconvert_api_WebHookTrigger_To_v1_WebHookTrigger,
+		autoconvert_extensions_ScaleSpec_To_v1_ScaleSpec,
+		autoconvert_extensions_ScaleStatus_To_v1_ScaleStatus,
+		autoconvert_extensions_Scale_To_v1_Scale,
 		autoconvert_v1_BinaryBuildRequestOptions_To_api_BinaryBuildRequestOptions,
 		autoconvert_v1_BinaryBuildSource_To_api_BinaryBuildSource,
 		autoconvert_v1_BuildConfigList_To_api_BuildConfigList,
@@ -5274,6 +5388,9 @@ func init() {
 		autoconvert_v1_RouteSpec_To_api_RouteSpec,
 		autoconvert_v1_RouteStatus_To_api_RouteStatus,
 		autoconvert_v1_Route_To_api_Route,
+		autoconvert_v1_ScaleSpec_To_extensions_ScaleSpec,
+		autoconvert_v1_ScaleStatus_To_extensions_ScaleStatus,
+		autoconvert_v1_Scale_To_extensions_Scale,
 		autoconvert_v1_SecretSpec_To_api_SecretSpec,
 		autoconvert_v1_SourceBuildStrategy_To_api_SourceBuildStrategy,
 		autoconvert_v1_SourceControlUser_To_api_SourceControlUser,
