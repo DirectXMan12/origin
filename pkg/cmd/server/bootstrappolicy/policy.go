@@ -39,6 +39,7 @@ func GetBootstrapClusterRoles() []authorizationapi.ClusterRole {
 				{
 					Verbs:     sets.NewString(authorizationapi.VerbAll),
 					Resources: sets.NewString(authorizationapi.ResourceAll),
+					APIGroups: []string{authorizationapi.APIGroupAll},
 				},
 				{
 					Verbs:           sets.NewString(authorizationapi.VerbAll),
@@ -396,7 +397,42 @@ func GetBootstrapClusterRoles() []authorizationapi.ClusterRole {
 			ObjectMeta: kapi.ObjectMeta{
 				Name: HPAControllerRoleName,
 			},
-			Rules: []authorizationapi.PolicyRule{},
+			Rules: []authorizationapi.PolicyRule{
+				// HPA Controller
+				{
+					APIGroups: []string{authorizationapi.APIGroupExtensions},
+					Verbs:     sets.NewString("get", "list"),
+					Resources: sets.NewString("horizontalpodautoscalers"),
+				},
+				{
+					APIGroups: []string{authorizationapi.APIGroupExtensions},
+					Verbs:     sets.NewString("update"),
+					Resources: sets.NewString("horizontalpodautoscalers/status"),
+				},
+				{
+					APIGroups: []string{authorizationapi.APIGroupExtensions},
+					Verbs:     sets.NewString("get", "update"),
+					Resources: sets.NewString("replicationcontrollers/scale"),
+				},
+				{
+					Verbs:     sets.NewString("get", "update"),
+					Resources: sets.NewString("deploymentconfigs/scale"),
+				},
+				{
+					Verbs:     sets.NewString("create", "update", "patch"),
+					Resources: sets.NewString("events"),
+				},
+				// Heapster MetricsClient
+				{
+					Verbs:     sets.NewString("list"),
+					Resources: sets.NewString("pods"),
+				},
+				{
+					Verbs:         sets.NewString("proxy"),
+					Resources:     sets.NewString("services/api"),
+					ResourceNames: sets.NewString("heapster"),
+				},
+			},
 		},
 		{
 			ObjectMeta: kapi.ObjectMeta{
