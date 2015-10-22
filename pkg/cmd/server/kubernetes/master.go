@@ -11,6 +11,7 @@ import (
 
 	kapi "k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/client/record"
+	osclient "github.com/openshift/origin/pkg/client"
 	client "k8s.io/kubernetes/pkg/client/unversioned"
 	endpointcontroller "k8s.io/kubernetes/pkg/controller/endpoint"
 	jobcontroller "k8s.io/kubernetes/pkg/controller/job"
@@ -19,6 +20,8 @@ import (
 	volumeclaimbinder "k8s.io/kubernetes/pkg/controller/persistentvolume"
 	replicationcontroller "k8s.io/kubernetes/pkg/controller/replication"
 	resourcequotacontroller "k8s.io/kubernetes/pkg/controller/resourcequota"
+	podautoscalercontroller "k8s.io/kubernetes/pkg/controller/podautoscaler"
+	"k8s.io/kubernetes/pkg/controller/podautoscaler/metrics"
 	"k8s.io/kubernetes/pkg/master"
 	"k8s.io/kubernetes/pkg/util"
 	"k8s.io/kubernetes/pkg/volume"
@@ -113,8 +116,10 @@ func (c *MasterConfig) RunJobController(client *client.Client) {
 }
 
 // RunHPAController starts the Kubernetes hpa controller sync loop
-func (c *MasterConfig) RunHPAController(client *client.Client) {
-	// TDO fix stub
+func (c *MasterConfig) RunHPAController(oc *osclient.Client, kc *client.Client, heapsterNamespace string) {
+	delegScaleNamespacer := osclient.NewDelegatingScaleNamespacer(oc, kc)
+	podautoscaler := podautoscalercontroller.NewHorizontalController(kc, delegScaleNamespacer, kc, metrics.NewHeapsterMetricsClient(kc, heapsterNamespace, "heapster"))
+	podautoscaler.Run(c.ControllerManager.HorizontalPodAutoscalerSyncPeriod)
 }
 
 // RunEndpointController starts the Kubernetes replication controller sync loop
