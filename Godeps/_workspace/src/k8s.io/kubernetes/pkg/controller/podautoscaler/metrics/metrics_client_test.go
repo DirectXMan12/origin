@@ -137,7 +137,7 @@ func (tc *testCase) verifyResults(t *testing.T, val *extensions.ResourceConsumpt
 
 func (tc *testCase) runTest(t *testing.T) {
 	testClient := tc.prepareTestClient(t)
-	metricsClient := NewHeapsterMetricsClient(testClient)
+	metricsClient := NewHeapsterMetricsClient(testClient, "kube-system", "heapster")
 	val, err := metricsClient.ResourceConsumption(tc.namespace).Get(tc.targetResource, tc.selector)
 	tc.verifyResults(t, val, err)
 }
