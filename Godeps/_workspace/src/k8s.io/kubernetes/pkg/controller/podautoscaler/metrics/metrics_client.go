@@ -33,11 +33,6 @@ import (
 	heapster "k8s.io/heapster/api/v1/types"
 )
 
-const (
-	heapsterNamespace = "kube-system"
-	heapsterService   = "heapster"
-)
-
 var heapsterQueryStart = -5 * time.Minute
 
 // An interface for getting metrics for pods.
@@ -61,17 +56,21 @@ type metricDefinition struct {
 
 // Heapster-based implementation of MetricsClient
 type HeapsterMetricsClient struct {
-	client client.Interface
+	client            client.Interface
+    heapsterNamespace string
+	heapsterService   string
 }
 
 type HeapsterResourceConsumptionClient struct {
 	namespace           string
 	client              client.Interface
 	resourceDefinitions map[api.ResourceName]metricDefinition
+    heapsterNamespace   string
+	heapsterService     string
 }
 
-func NewHeapsterMetricsClient(client client.Interface) *HeapsterMetricsClient {
-	return &HeapsterMetricsClient{client: client}
+func NewHeapsterMetricsClient(client client.Interface, namespace, service string) *HeapsterMetricsClient {
+	return &HeapsterMetricsClient{client: client, heapsterNamespace: namespace, heapsterService: service}
 }
 
 var heapsterMetricDefinitions = map[api.ResourceName]metricDefinition{
@@ -101,6 +100,8 @@ func (h *HeapsterMetricsClient) ResourceConsumption(namespace string) ResourceCo
 		namespace:           namespace,
 		client:              h.client,
 		resourceDefinitions: heapsterMetricDefinitions,
+		heapsterNamespace:   h.heapsterNamespace,
+		heapsterService:     h.heapsterService,
 	}
 }
 
@@ -131,8 +132,8 @@ func (h *HeapsterResourceConsumptionClient) getForPods(resourceName api.Resource
 		strings.Join(podNames, ","),
 		metricSpec.name)
 
-	resultRaw, err := h.client.Services(heapsterNamespace).
-		ProxyGet(heapsterService, metricPath, map[string]string{"start": startTime.Format(time.RFC3339)}).
+	resultRaw, err := h.client.Services(h.heapsterNamespace).
+		ProxyGet(h.heapsterService, metricPath, map[string]string{"start": startTime.Format(time.RFC3339)}).
 		DoRaw()
 
 	if err != nil {
