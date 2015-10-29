@@ -370,31 +370,3 @@ type DeploymentLogOptions struct {
 	// Version of the deploymentConfig for which to view logs.
 	Version *int `json:"version,omitempty" description:"the version of the deploymentConfig for which to view logs"`
 }
-
-// ScaleSpec describes the attributes a Scale subresource
-type ScaleSpec struct {
-	// Replicas is the number of desired replicas. More info: http://releases.k8s.io/HEAD/docs/user-guide/replication-controller.md#what-is-a-replication-controller"
-	Replicas int `json:"replicas,omitempty"`
-}
-
-// ScaleStatus represents the current status of a Scale subresource.
-type ScaleStatus struct {
-	// Replicas is the number of actual replicas. More info: http://releases.k8s.io/HEAD/docs/user-guide/replication-controller.md#what-is-a-replication-controller
-	Replicas int `json:"replicas"`
-
-	// Selector is a label query over pods that should match the replicas count. If it is empty, it is defaulted to labels on Pod template; More info: http://releases.k8s.io/HEAD/docs/user-guide/labels.md#label-selectors
-	Selector map[string]string `json:"selector,omitempty"`
-}
-
-// Scale subresource, applicable to ReplicationControllers and (in future) Deployment.
-type Scale struct {
-	unversioned.TypeMeta `json:",inline"`
-	// Standard object metadata; More info: http://releases.k8s.io/HEAD/docs/devel/api-conventions.md#metadata.
-	kapi.ObjectMeta `json:"metadata,omitempty"`
-
-	// Spec defines the behavior of the scale. More info: http://releases.k8s.io/HEAD/docs/devel/api-conventions.md#spec-and-status.
-	Spec ScaleSpec `json:"spec,omitempty"`
-
-	// Status represents the current status of the scale. More info: http://releases.k8s.io/HEAD/docs/devel/api-conventions.md#spec-and-status. Read-only.
-	Status ScaleStatus `json:"status,omitempty"`
-}
