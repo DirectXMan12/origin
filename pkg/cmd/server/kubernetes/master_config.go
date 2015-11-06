@@ -216,6 +216,9 @@ func BuildKubernetesMasterConfig(options configapi.MasterConfig, requestContextM
 		},
 	}
 
+	// Force the controller manager config to match the master config
+	cmserver.EnableExperimental = m.EnableExp
+
 	if options.DNSConfig != nil {
 		_, dnsPortStr, err := net.SplitHostPort(options.DNSConfig.BindAddress)
 		if err != nil {
