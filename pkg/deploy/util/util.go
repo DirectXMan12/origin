@@ -21,14 +21,30 @@ func LatestDeploymentNameForConfig(config *deployapi.DeploymentConfig) string {
 }
 
 // LatestDeploymentInfo returns info about the latest deployment for a config,
-// if it exists and its current status
-func LatestDeploymentInfo(config *deployapi.DeploymentConfig, deployments *api.ReplicationControllerList) (bool, deployapi.DeploymentStatus) {
+// or nil if there is no latest deployment. The latest deployment is not
+// always the same as the active deployment.
+func LatestDeploymentInfo(config *deployapi.DeploymentConfig, deployments *api.ReplicationControllerList) (bool, *api.ReplicationController) {
 	if config.LatestVersion == 0 || len(deployments.Items) == 0 {
-		return false, deployapi.DeploymentStatus("")
+		return false, nil
 	}
 	sort.Sort(ByLatestVersionDesc(deployments.Items))
 	candidate := &deployments.Items[0]
-	return DeploymentVersionFor(candidate) == config.LatestVersion, DeploymentStatusFor(candidate)
+	return DeploymentVersionFor(candidate) == config.LatestVersion, candidate
+}
+
+// ActiveDeployment returns the latest complete deployment, or nil if there is
+// no such deployment. The active deployment is not always the same as the
+// latest deployment.
+func ActiveDeployment(config *deployapi.DeploymentConfig, deployments *api.ReplicationControllerList) *api.ReplicationController {
+	sort.Sort(ByLatestVersionDesc(deployments.Items))
+	var activeDeployment *api.ReplicationController
+	for _, deployment := range deployments.Items {
+		if DeploymentStatusFor(&deployment) == deployapi.DeploymentStatusComplete {
+			activeDeployment = &deployment
+			break
+		}
+	}
+	return activeDeployment
 }
 
 // DeployerPodSuffix is the suffix added to pods created from a deployment
@@ -172,6 +188,8 @@ func MakeDeployment(config *deployapi.DeploymentConfig, codec runtime.Codec) (*a
 				deployapi.DeploymentStatusAnnotation:        string(deployapi.DeploymentStatusNew),
 				deployapi.DeploymentEncodedConfigAnnotation: encodedConfig,
 				deployapi.DeploymentVersionAnnotation:       strconv.Itoa(config.LatestVersion),
+				// This is the target replica count for the new deployment.
+				deployapi.DesiredReplicasAnnotation: strconv.Itoa(config.Template.ControllerTemplate.Replicas),
 			},
 			Labels: controllerLabels,
 		},
