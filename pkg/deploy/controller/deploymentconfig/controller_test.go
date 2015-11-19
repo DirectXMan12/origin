@@ -38,7 +38,7 @@ func TestHandleScenarios(t *testing.T) {
 			deployment.Annotations[deployapi.DeploymentStatusReasonAnnotation] = deployapi.DeploymentCancelledNewerDeploymentExists
 		}
 		if d.replicasA != nil {
-			deployment.Annotations["openshift.io/deployment.replicas"] = strconv.Itoa(*d.replicasA)
+			deployment.Annotations[DeploymentReplicasAnnotation] = strconv.Itoa(*d.replicasA)
 		}
 		deployment.Spec.Replicas = d.replicas
 		return *deployment
