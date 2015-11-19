@@ -2,6 +2,7 @@ package deploymentconfig
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"k8s.io/kubernetes/pkg/runtime"
 	kutil "k8s.io/kubernetes/pkg/util"
 
+	"github.com/openshift/origin/pkg/client/testclient"
 	deployapi "github.com/openshift/origin/pkg/deploy/api"
 	deploytest "github.com/openshift/origin/pkg/deploy/api/test"
 	deployutil "github.com/openshift/origin/pkg/deploy/util"
@@ -18,8 +20,12 @@ import (
 
 func TestHandleScenarios(t *testing.T) {
 	type deployment struct {
-		version   int
-		replicas  int
+		// version is the deployment version
+		version int
+		// replicas is the spec replicas of the deployment
+		replicas int
+		// replicasA is the annotated replica value for backwards compat checks
+		replicasA *int
 		status    deployapi.DeploymentStatus
 		cancelled bool
 	}
@@ -31,36 +37,57 @@ func TestHandleScenarios(t *testing.T) {
 			deployment.Annotations[deployapi.DeploymentCancelledAnnotation] = deployapi.DeploymentCancelledAnnotationValue
 			deployment.Annotations[deployapi.DeploymentStatusReasonAnnotation] = deployapi.DeploymentCancelledNewerDeploymentExists
 		}
+		if d.replicasA != nil {
+			deployment.Annotations["openshift.io/deployment.replicas"] = strconv.Itoa(*d.replicasA)
+		}
 		deployment.Spec.Replicas = d.replicas
 		return *deployment
 	}
 
+	newint := func(i int) *int {
+		return &i
+	}
+
 	tests := []struct {
-		name        string
-		newVersion  int
-		before      []deployment
-		after       []deployment
+		name string
+		// replicas is the config replicas prior to the update
+		replicas int
+		// newVersion is the version of the config at the time of the update
+		newVersion int
+		// expectedReplicas is the expected config replica count after the update
+		expectedReplicas int
+		// before is the state of all deployments prior to the update
+		before []deployment
+		// after is the expected state of all deployments after the update
+		after []deployment
+		// errExpected is whether the update should produce an error
 		errExpected bool
 	}{
 		{
-			name:        "version is zero",
-			newVersion:  0,
-			before:      []deployment{},
-			after:       []deployment{},
-			errExpected: false,
+			name:             "version is zero",
+			replicas:         1,
+			newVersion:       0,
+			expectedReplicas: 1,
+			before:           []deployment{},
+			after:            []deployment{},
+			errExpected:      false,
 		},
 		{
-			name:       "initial deployment of this version",
-			newVersion: 1,
-			before:     []deployment{},
+			name:             "initial deployment of this version",
+			replicas:         1,
+			newVersion:       1,
+			expectedReplicas: 1,
+			before:           []deployment{},
 			after: []deployment{
 				{version: 1, replicas: 0, status: deployapi.DeploymentStatusNew, cancelled: false},
 			},
 			errExpected: false,
 		},
 		{
-			name:       "this version deployment in progress (no older deployments present)",
-			newVersion: 1,
+			name:             "this version deployment in progress (no older deployments present)",
+			replicas:         1,
+			newVersion:       1,
+			expectedReplicas: 1,
 			before: []deployment{
 				{version: 1, replicas: 1, status: deployapi.DeploymentStatusNew, cancelled: false},
 			},
@@ -70,8 +97,10 @@ func TestHandleScenarios(t *testing.T) {
 			errExpected: false,
 		},
 		{
-			name:       "this version deployment in progress (older deployments present)",
-			newVersion: 2,
+			name:             "this version deployment in progress (older deployments present)",
+			replicas:         1,
+			newVersion:       2,
+			expectedReplicas: 1,
 			before: []deployment{
 				{version: 1, replicas: 1, status: deployapi.DeploymentStatusComplete, cancelled: false},
 			},
@@ -82,8 +111,10 @@ func TestHandleScenarios(t *testing.T) {
 			errExpected: false,
 		},
 		{
-			name:       "this version already deployed (no older deployments present)",
-			newVersion: 1,
+			name:             "this version already deployed (no older deployments present)",
+			replicas:         1,
+			newVersion:       1,
+			expectedReplicas: 1,
 			before: []deployment{
 				{version: 1, replicas: 1, status: deployapi.DeploymentStatusComplete, cancelled: false},
 			},
@@ -93,8 +124,10 @@ func TestHandleScenarios(t *testing.T) {
 			errExpected: false,
 		},
 		{
-			name:       "this version awaiting cancellation of older deployments (not yet cancelled)",
-			newVersion: 3,
+			name:             "this version awaiting cancellation of older deployments (not yet cancelled)",
+			replicas:         1,
+			newVersion:       3,
+			expectedReplicas: 1,
 			before: []deployment{
 				{version: 1, replicas: 1, status: deployapi.DeploymentStatusRunning, cancelled: false},
 				{version: 2, replicas: 1, status: deployapi.DeploymentStatusRunning, cancelled: false},
@@ -106,8 +139,10 @@ func TestHandleScenarios(t *testing.T) {
 			errExpected: true,
 		},
 		{
-			name:       "this version awaiting cancellation of older deployments (previously cancelled)",
-			newVersion: 2,
+			name:             "this version awaiting cancellation of older deployments (previously cancelled)",
+			replicas:         1,
+			newVersion:       2,
+			expectedReplicas: 1,
 			before: []deployment{
 				{version: 1, replicas: 1, status: deployapi.DeploymentStatusRunning, cancelled: true},
 			},
@@ -117,8 +152,10 @@ func TestHandleScenarios(t *testing.T) {
 			errExpected: true,
 		},
 		{
-			name:       "this version already deployed with replica count divergence (latest != active)",
-			newVersion: 5,
+			name:             "this version already deployed with replica count divergence (latest != active)",
+			replicas:         1,
+			newVersion:       5,
+			expectedReplicas: 1,
 			before: []deployment{
 				{version: 1, replicas: 0, status: deployapi.DeploymentStatusComplete, cancelled: false},
 				{version: 2, replicas: 1, status: deployapi.DeploymentStatusComplete, cancelled: false},
@@ -128,29 +165,63 @@ func TestHandleScenarios(t *testing.T) {
 			},
 			after: []deployment{
 				{version: 1, replicas: 0, status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 0, status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 3, replicas: 0, status: deployapi.DeploymentStatusFailed, cancelled: true},
-				{version: 4, replicas: 1, status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 5, replicas: 0, status: deployapi.DeploymentStatusFailed, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newint(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 3, replicas: 0, replicasA: newint(0), status: deployapi.DeploymentStatusFailed, cancelled: true},
+				{version: 4, replicas: 1, replicasA: newint(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 5, replicas: 0, replicasA: newint(0), status: deployapi.DeploymentStatusFailed, cancelled: false},
 			},
 			errExpected: false,
 		},
 		{
-			name:       "this version already deployed with replica count divergence (latest == active)",
-			newVersion: 5,
+			name:             "this version already deployed with replica count divergence (latest == active)",
+			replicas:         1,
+			newVersion:       5,
+			expectedReplicas: 1,
 			before: []deployment{
 				{version: 1, replicas: 1, status: deployapi.DeploymentStatusComplete, cancelled: false},
 				{version: 2, replicas: 1, status: deployapi.DeploymentStatusComplete, cancelled: false},
 				{version: 3, replicas: 1, status: deployapi.DeploymentStatusFailed, cancelled: true},
 				{version: 4, replicas: 1, status: deployapi.DeploymentStatusFailed, cancelled: false},
-				{version: 5, replicas: 2, status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 5, replicas: 1, status: deployapi.DeploymentStatusComplete, cancelled: false},
 			},
 			after: []deployment{
-				{version: 1, replicas: 0, status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 2, replicas: 0, status: deployapi.DeploymentStatusComplete, cancelled: false},
-				{version: 3, replicas: 0, status: deployapi.DeploymentStatusFailed, cancelled: true},
-				{version: 4, replicas: 0, status: deployapi.DeploymentStatusFailed, cancelled: false},
+				{version: 1, replicas: 0, replicasA: newint(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newint(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 3, replicas: 0, replicasA: newint(0), status: deployapi.DeploymentStatusFailed, cancelled: true},
+				{version: 4, replicas: 0, replicasA: newint(0), status: deployapi.DeploymentStatusFailed, cancelled: false},
 				{version: 5, replicas: 1, status: deployapi.DeploymentStatusComplete, cancelled: false},
+			},
+			errExpected: false,
+		},
+		{
+			name:             "this version already deployed with replica count divergence, reverse sync (latest == active)",
+			replicas:         1,
+			newVersion:       2,
+			expectedReplicas: 2,
+			before: []deployment{
+				{version: 1, replicas: 1, status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 2, status: deployapi.DeploymentStatusComplete, cancelled: false},
+			},
+			after: []deployment{
+				{version: 1, replicas: 0, replicasA: newint(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 2, status: deployapi.DeploymentStatusComplete, cancelled: false},
+			},
+			errExpected: false,
+		},
+		{
+			name:             "this version already deployed with replica count divergence, reverse sync (latest != active)",
+			replicas:         1,
+			newVersion:       3,
+			expectedReplicas: 2,
+			before: []deployment{
+				{version: 1, replicas: 1, status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 3, replicas: 2, status: deployapi.DeploymentStatusFailed, cancelled: false},
+			},
+			after: []deployment{
+				{version: 1, replicas: 0, replicasA: newint(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 2, replicasA: newint(2), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 3, replicas: 0, replicasA: newint(0), status: deployapi.DeploymentStatusFailed, cancelled: false},
 			},
 			errExpected: false,
 		},
@@ -165,39 +236,43 @@ func TestHandleScenarios(t *testing.T) {
 			deployments[deployment.Name] = deployment
 		}
 
-		kubeClient := &ktestclient.Fake{}
-		kubeClient.AddReactor("list", "replicationcontrollers", func(action ktestclient.Action) (handled bool, ret runtime.Object, err error) {
+		kc := &ktestclient.Fake{}
+		kc.AddReactor("list", "replicationcontrollers", func(action ktestclient.Action) (handled bool, ret runtime.Object, err error) {
 			list := []kapi.ReplicationController{}
 			for _, deployment := range deployments {
 				list = append(list, deployment)
 			}
 			return true, &kapi.ReplicationControllerList{Items: list}, nil
 		})
-		kubeClient.AddReactor("create", "replicationcontrollers", func(action ktestclient.Action) (handled bool, ret runtime.Object, err error) {
+		kc.AddReactor("create", "replicationcontrollers", func(action ktestclient.Action) (handled bool, ret runtime.Object, err error) {
 			rc := action.(ktestclient.CreateAction).GetObject().(*kapi.ReplicationController)
 			deployments[rc.Name] = *rc
 			return true, rc, nil
 		})
-		kubeClient.AddReactor("update", "replicationcontrollers", func(action ktestclient.Action) (handled bool, ret runtime.Object, err error) {
+		kc.AddReactor("update", "replicationcontrollers", func(action ktestclient.Action) (handled bool, ret runtime.Object, err error) {
 			rc := action.(ktestclient.UpdateAction).GetObject().(*kapi.ReplicationController)
 			deployments[rc.Name] = *rc
 			return true, rc, nil
 		})
 
+		oc := &testclient.Fake{}
+
 		recorder := &record.FakeRecorder{}
 		controller := &DeploymentConfigController{
-			kubeClient: kubeClient,
+			kubeClient: kc,
+			osClient:   oc,
 			codec:      kapi.Codec,
 			recorder:   recorder,
 		}
 
 		config := deploytest.OkDeploymentConfig(test.newVersion)
+		config.Template.ControllerTemplate.Replicas = test.replicas
 		err := controller.Handle(config)
 		if err != nil {
 			if test.errExpected {
 				t.Logf("got expected error: %s", err)
 			} else {
-				t.Errorf("unexpected error: %s", err)
+				t.Fatalf("unexpected error: %s", err)
 				continue
 			}
 		}
@@ -213,12 +288,20 @@ func TestHandleScenarios(t *testing.T) {
 		sort.Sort(deployutil.ByLatestVersionDesc(expectedDeployments))
 		sort.Sort(deployutil.ByLatestVersionDesc(actualDeployments))
 
-		if !kapi.Semantic.DeepEqual(expectedDeployments, actualDeployments) {
-			t.Errorf("actual deployments don't match expectations: %v", kutil.ObjectDiff(expectedDeployments, actualDeployments))
-			if len(recorder.Events) > 0 {
-				t.Logf("events:\n%s", strings.Join(recorder.Events, "\t\n"))
+		if e, a := test.expectedReplicas, config.Template.ControllerTemplate.Replicas; e != a {
+			t.Errorf("expected config replicas to be %d, got %d", e, a)
+			t.Fatalf("events:\n%s", strings.Join(recorder.Events, "\t\n"))
+		}
+		anyDeploymentMismatches := false
+		for i := 0; i < len(expectedDeployments); i++ {
+			expected, actual := expectedDeployments[i], actualDeployments[i]
+			if !kapi.Semantic.DeepEqual(expected, actual) {
+				anyDeploymentMismatches = true
+				t.Errorf("actual deployment don't match expected: %v", kutil.ObjectDiff(expected, actual))
 			}
-			return
+		}
+		if anyDeploymentMismatches {
+			t.Fatalf("events:\n%s", strings.Join(recorder.Events, "\t\n"))
 		}
 	}
 }

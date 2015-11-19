@@ -2,15 +2,18 @@ package deploymentconfig
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/golang/glog"
 
+	kapi "k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/errors"
 	"k8s.io/kubernetes/pkg/client/record"
 	kclient "k8s.io/kubernetes/pkg/client/unversioned"
 	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/kubernetes/pkg/runtime"
 
+	osclient "github.com/openshift/origin/pkg/client"
 	deployapi "github.com/openshift/origin/pkg/deploy/api"
 	deployutil "github.com/openshift/origin/pkg/deploy/util"
 )
@@ -32,6 +35,8 @@ import (
 type DeploymentConfigController struct {
 	// kubeClient provides acceess to Kube resources.
 	kubeClient kclient.Interface
+	// osClient provides access to OpenShift resources.
+	osClient osclient.Interface
 	// codec is used to build deployments from configs.
 	codec runtime.Codec
 	// recorder is used to record events.
@@ -76,7 +81,7 @@ func (c *DeploymentConfigController) Handle(config *deployapi.DeploymentConfig) 
 	latestDeploymentExists, latestDeployment := deployutil.LatestDeploymentInfo(config, existingDeployments)
 	// If the latest deployment doesn't exist yet, cancel any running
 	// deployments to allow them to be superceded by the new config version.
-	inflightDeploymentsExist := false
+	awaitingCancellations := false
 	if !latestDeploymentExists {
 		for _, deployment := range existingDeployments.Items {
 			// Skip deployments with an outcome.
@@ -84,7 +89,7 @@ func (c *DeploymentConfigController) Handle(config *deployapi.DeploymentConfig) 
 				continue
 			}
 			// Cancel running deployments.
-			inflightDeploymentsExist = true
+			awaitingCancellations = true
 			if !deployutil.IsDeploymentCancelled(&deployment) {
 				deployment.Annotations[deployapi.DeploymentCancelledAnnotation] = deployapi.DeploymentCancelledAnnotationValue
 				deployment.Annotations[deployapi.DeploymentStatusReasonAnnotation] = deployapi.DeploymentCancelledNewerDeploymentExists
@@ -97,51 +102,22 @@ func (c *DeploymentConfigController) Handle(config *deployapi.DeploymentConfig) 
 			}
 		}
 	}
-	// Wait for deployment cancellations before doing any more scaling or
-	// creating a new deployment to avoid competing with existing deployment
-	// processes.
-	if inflightDeploymentsExist {
+	// Wait for deployment cancellations before reconciling or creating a new
+	// deployment to avoid competing with existing deployment processes.
+	if awaitingCancellations {
 		c.recorder.Eventf(config, "DeploymentAwaitingCancellation", "Deployment of version %d awaiting cancellation of older running deployments", config.LatestVersion)
 		// raise a transientError so that the deployment config can be re-queued
 		return transientError(fmt.Sprintf("found previous inflight deployment for %s - requeuing", deployutil.LabelForDeploymentConfig(config)))
 	}
-	// If the latest deployment already exists, reconcile replica counts and
-	// return early.
+	// If the latest deployment already exists, reconcile existing deployments
+	// and return early.
 	if latestDeploymentExists {
-		// If the latest deployment exists and is still running, return early and
-		// reconcile later. We don't want to compete with the deployer.
+		// If the latest deployment is still running, try again later. We don't
+		// want to compete with the deployer.
 		if !deployutil.IsTerminatedDeployment(latestDeployment) {
 			return nil
 		}
-		// Reconcile existing deployment replica counts which could have diverged
-		// outside the deployment process (e.g. due to auto or manual scaling).
-		// The active deployment is the last successful deployment, not
-		// necessarily the latest in terms of the config version. If the latest
-		// version failed to deploy, it should be scaled to zero and the last
-		// successful should be scaled back up.
-		activeDeployment := deployutil.ActiveDeployment(config, existingDeployments)
-		for _, deployment := range existingDeployments.Items {
-			oldReplicaCount := deployment.Spec.Replicas
-			newReplicaCount := oldReplicaCount
-			// The active deployment should be scaled to the config replica count, and
-			// everything else should be at zero.
-			if activeDeployment != nil && deployment.Name == activeDeployment.Name {
-				newReplicaCount = config.Template.ControllerTemplate.Replicas
-			} else {
-				newReplicaCount = 0
-			}
-			// Only process updates if the replica count actually changed.
-			if oldReplicaCount != newReplicaCount {
-				deployment.Spec.Replicas = newReplicaCount
-				_, err := c.kubeClient.ReplicationControllers(deployment.Namespace).Update(&deployment)
-				if err != nil {
-					c.recorder.Eventf(config, "DeploymentScaleFailed", "Failed to scale deployment %q from %d to %d: %s", deployment.Name, oldReplicaCount, newReplicaCount, err)
-					return err
-				}
-				c.recorder.Eventf(config, "DeploymentScaled", "Scaled deployment %q from %d to %d", deployment.Name, oldReplicaCount, newReplicaCount)
-			}
-		}
-		return nil
+		return c.reconcileExistingDeployments(existingDeployments, config)
 	}
 	// No deployments are running and the latest deployment doesn't exist, so
 	// create the new deployment.
@@ -160,5 +136,122 @@ func (c *DeploymentConfigController) Handle(config *deployapi.DeploymentConfig) 
 		return fmt.Errorf("couldn't create deployment for deployment config %s: %v", deployutil.LabelForDeploymentConfig(config), err)
 	}
 	c.recorder.Eventf(config, "DeploymentCreated", "Created new deployment %q for version %d", created.Name, config.LatestVersion)
+	return nil
+}
+
+// reconcileExistingDeployments reconciles existing deployment replica counts
+// which could have diverged outside the deployment process (e.g. due to auto
+// or manual scaling). The active deployment is the last successful
+// deployment, not necessarily the latest in terms of the config version. The
+// active deployment replica count should follow the config, and all other
+// deployments should be scaled to zero.
+//
+// Previously, scaling behavior was that the config replica count was used
+// only for initial deployments and the active deployment had to be scaled up
+// directly. To continue supporting that old behavior we must detect when the
+// deployment has been directly manipulated, and if so, preserve the directly
+// updated value and sync the config with the deployment.
+func (c *DeploymentConfigController) reconcileExistingDeployments(existingDeployments *kapi.ReplicationControllerList, config *deployapi.DeploymentConfig) error {
+	activeDeployment := deployutil.ActiveDeployment(config, existingDeployments)
+	glog.Infof("reconciling")
+	if activeDeployment != nil {
+		glog.Infof("active deployment %s (%s)", activeDeployment.Name, deployutil.DeploymentStatusFor(activeDeployment))
+	}
+	for _, deployment := range existingDeployments.Items {
+		isActiveDeployment := activeDeployment != nil && deployment.Name == activeDeployment.Name
+		glog.Infof("deployment %s replicas %d", deployment.Name, deployment.Spec.Replicas)
+		oldReplicaCount := deployment.Spec.Replicas
+		var newReplicaCount int
+		// The active deployment should be scaled to the config replica count, and
+		// everything else should be at zero.
+		if isActiveDeployment {
+			lastSyncedReplicaCountStr, syncedPreviously := deployment.Annotations["openshift.io/deployment.replicas"]
+			if syncedPreviously {
+				// The RC has been synced by the controller at least once before, so
+				// reconcile it with the config and against any external updates to
+				// the RC's replica count.
+				lastSyncedReplicaCount, err := strconv.Atoi(lastSyncedReplicaCountStr)
+				if err != nil {
+					// Replace the invalid value with a new valid one.
+					glog.Infof("setting newReplicaCount for %s A", deployment.Name)
+					newReplicaCount = config.Template.ControllerTemplate.Replicas
+					// TODO: Should this be logged?
+				} else {
+					if lastSyncedReplicaCount == deployment.Spec.Replicas {
+						// The RC hasn't been manipulated externally since the last
+						// sync, so let the RC follow the config value.
+						glog.Infof("setting newReplicaCount for %s B", deployment.Name)
+						newReplicaCount = config.Template.ControllerTemplate.Replicas
+					} else {
+						// The RC was updated by something other than the controller;
+						// preserve the externally updated value and let the config be
+						// synced to match the RC.
+						glog.Infof("setting newReplicaCount for %s C", deployment.Name)
+						newReplicaCount = oldReplicaCount
+					}
+				}
+			} else {
+				// The RC has not yet been synced by the controller. If the active
+				// replica count is greater than 0, use it as the new basis for
+				// reconciliation. Otherwise, fall back to the config and assume the
+				// deployment is an old one being scaled up due to a later version
+				// failure.
+				//
+				// TODO: This assumption means we'll scale up an older deployment even
+				// if it was explicitly scaled to 0, but that edge case seems more
+				// tolerable than further complexity at this moment.
+				if oldReplicaCount > 0 {
+					newReplicaCount = oldReplicaCount
+					glog.Infof("setting newReplicaCount %d for %s D", newReplicaCount, deployment.Name)
+				} else {
+					// Since we (for some reason) delete the desired annotation from
+					// complete deployments, we'll have to use the desired count of the
+					// latest (failed) deployment and  fall back to the config if that
+					// value's not present.
+					hasLatest, latestDeployment := deployutil.LatestDeploymentInfo(config, existingDeployments)
+					if hasLatest {
+						glog.Infof("setting newReplicaCount for %s E", deployment.Name)
+						newReplicaCount = latestDeployment.Spec.Replicas
+					} else {
+						glog.Infof("setting newReplicaCount for %s F", deployment.Name)
+						newReplicaCount = config.Template.ControllerTemplate.Replicas
+					}
+				}
+			}
+		} else {
+			// All RCs other than the active deployment should be scaled to 0.
+			newReplicaCount = 0
+			glog.Infof("setting newReplicaCount for %s F", deployment.Name)
+		}
+		// Keep the config in sync with the active deployment. This logic can be
+		// removed if direct deployment scaling becomes prohibited in the future.
+		if isActiveDeployment && newReplicaCount != config.Template.ControllerTemplate.Replicas {
+			config.Template.ControllerTemplate.Replicas = newReplicaCount
+			updated, err := c.osClient.DeploymentConfigs(config.Namespace).Update(config)
+			if err != nil {
+				c.recorder.Eventf(config, "DeploymentConfigReplicasSyncFailed",
+					"Failed to update deploymentConfig %q replicas to %s to match deployment %q following detection of external scaling of the deployment: %s",
+					config.Name, newReplicaCount, deployment.Name, err)
+				return err
+			}
+			config = updated
+			c.recorder.Eventf(config, "DeploymentConfigReplicasSynced",
+				"Updated deploymentConfig %q replicas to %d to match deployment %q because external scaling of the deployment was detected",
+				config.Name, newReplicaCount, deployment.Name)
+		}
+		// Only process updates if the replica count actually changed.
+		if oldReplicaCount != newReplicaCount {
+			deployment.Spec.Replicas = newReplicaCount
+			deployment.Annotations["openshift.io/deployment.replicas"] = strconv.Itoa(newReplicaCount)
+			_, err := c.kubeClient.ReplicationControllers(deployment.Namespace).Update(&deployment)
+			if err != nil {
+				c.recorder.Eventf(config, "DeploymentScaleFailed",
+					"Failed to scale deployment %q from %d to %d: %s", deployment.Name, oldReplicaCount, newReplicaCount, err)
+				return err
+			}
+			c.recorder.Eventf(config, "DeploymentScaled",
+				"Scaled deployment %q from %d to %d", deployment.Name, oldReplicaCount, newReplicaCount)
+		}
+	}
 	return nil
 }
