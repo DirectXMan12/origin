@@ -192,7 +192,7 @@ oc create -f test/integration/fixtures/test-deployment-config.json
 oc scale dc/test-deployment-config --replicas=2
 tryuntil '[ "$(oc get rc/test-deployment-config-1 -o yaml | grep Complete)" ]'
 # scale rc via deployment configuration
-oc scale dc/test-deployment-config --replicas=3 --timeout=10m
+oc scale dc/test-deployment-config --replicas=3 --timeout=1m
 oc delete dc/test-deployment-config
 echo "scale: ok"
 

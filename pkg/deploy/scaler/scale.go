@@ -68,7 +68,6 @@ func (scaler *DeploymentConfigScaler) ScaleSimple(namespace, name string, precon
 	if _, err := scaler.dcClient.DeploymentConfigs(namespace).UpdateScale(scale); err != nil {
 		return kubectl.ControllerScaleError{FailureType: kubectl.ControllerScaleUpdateFailure, ResourceVersion: dc.ResourceVersion, ActualError: err}
 	}
-	// TODO: do a better job of printing objects here.
 	return nil
 }
 

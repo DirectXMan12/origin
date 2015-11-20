@@ -189,7 +189,8 @@ func MakeDeployment(config *deployapi.DeploymentConfig, codec runtime.Codec) (*a
 				deployapi.DeploymentEncodedConfigAnnotation: encodedConfig,
 				deployapi.DeploymentVersionAnnotation:       strconv.Itoa(config.LatestVersion),
 				// This is the target replica count for the new deployment.
-				deployapi.DesiredReplicasAnnotation: strconv.Itoa(config.Template.ControllerTemplate.Replicas),
+				deployapi.DesiredReplicasAnnotation:    strconv.Itoa(config.Template.ControllerTemplate.Replicas),
+				deployapi.DeploymentReplicasAnnotation: strconv.Itoa(0),
 			},
 			Labels: controllerLabels,
 		},
@@ -246,15 +247,11 @@ func DeploymentStatusReasonFor(obj runtime.Object) string {
 }
 
 func DeploymentDesiredReplicas(obj runtime.Object) (int, bool) {
-	s := annotationFor(obj, deployapi.DesiredReplicasAnnotation)
-	if len(s) == 0 {
-		return 0, false
-	}
-	i, err := strconv.Atoi(s)
-	if err != nil {
-		return 0, false
-	}
-	return i, true
+	return intAnnotationFor(obj, deployapi.DesiredReplicasAnnotation)
+}
+
+func DeploymentReplicas(obj runtime.Object) (int, bool) {
+	return intAnnotationFor(obj, deployapi.DeploymentReplicasAnnotation)
 }
 
 func EncodedDeploymentConfigFor(obj runtime.Object) string {
@@ -288,6 +285,18 @@ func annotationFor(obj runtime.Object, key string) string {
 		return ""
 	}
 	return meta.Annotations[key]
+}
+
+func intAnnotationFor(obj runtime.Object, key string) (int, bool) {
+	s := annotationFor(obj, deployapi.DesiredReplicasAnnotation)
+	if len(s) == 0 {
+		return 0, false
+	}
+	i, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return i, true
 }
 
 // ByLatestVersionAsc sorts deployments by LatestVersion ascending.
