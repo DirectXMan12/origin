@@ -208,6 +208,36 @@ func TestHandleScenarios(t *testing.T) {
 			},
 			errExpected: false,
 		},
+		{
+			name:             "this version already deployed, scaled externally (latest == active)",
+			replicas:         1,
+			newVersion:       2,
+			expectedReplicas: 5,
+			before: []deployment{
+				{version: 1, replicas: 0, replicasA: newint(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 5, replicasA: newint(1), status: deployapi.DeploymentStatusComplete, cancelled: false},
+			},
+			after: []deployment{
+				{version: 1, replicas: 0, replicasA: newint(0), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 5, replicasA: newint(5), status: deployapi.DeploymentStatusComplete, cancelled: false},
+			},
+			errExpected: false,
+		},
+		{
+			name:             "this version already deployed, no active deployment",
+			replicas:         1,
+			newVersion:       2,
+			expectedReplicas: 1,
+			before: []deployment{
+				{version: 1, replicas: 0, replicasA: newint(0), desiredA: newint(1), status: deployapi.DeploymentStatusFailed, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newint(0), desiredA: newint(1), status: deployapi.DeploymentStatusFailed, cancelled: false},
+			},
+			after: []deployment{
+				{version: 1, replicas: 0, replicasA: newint(0), desiredA: newint(1), status: deployapi.DeploymentStatusFailed, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newint(0), desiredA: newint(1), status: deployapi.DeploymentStatusFailed, cancelled: false},
+			},
+			errExpected: false,
+		},
 	}
 
 	for _, test := range tests {

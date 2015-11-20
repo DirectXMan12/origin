@@ -78,11 +78,11 @@ func (c *DeploymentConfigController) Handle(config *deployapi.DeploymentConfig) 
 		return err
 	}
 
-	latestDeploymentExists, latestDeployment := deployutil.LatestDeploymentInfo(config, existingDeployments)
+	latestIsDeployed, latestDeployment := deployutil.LatestDeploymentInfo(config, existingDeployments)
 	// If the latest deployment doesn't exist yet, cancel any running
 	// deployments to allow them to be superceded by the new config version.
 	awaitingCancellations := false
-	if !latestDeploymentExists {
+	if !latestIsDeployed {
 		for _, deployment := range existingDeployments.Items {
 			// Skip deployments with an outcome.
 			if deployutil.IsTerminatedDeployment(&deployment) {
@@ -111,7 +111,7 @@ func (c *DeploymentConfigController) Handle(config *deployapi.DeploymentConfig) 
 	}
 	// If the latest deployment already exists, reconcile existing deployments
 	// and return early.
-	if latestDeploymentExists {
+	if latestIsDeployed {
 		// If the latest deployment is still running, try again later. We don't
 		// want to compete with the deployer.
 		if !deployutil.IsTerminatedDeployment(latestDeployment) {
@@ -152,11 +152,14 @@ func (c *DeploymentConfigController) Handle(config *deployapi.DeploymentConfig) 
 // deployment has been directly manipulated, and if so, preserve the directly
 // updated value and sync the config with the deployment.
 func (c *DeploymentConfigController) reconcileDeployments(existingDeployments *kapi.ReplicationControllerList, config *deployapi.DeploymentConfig) error {
+	latestIsDeployed, latestDeployment := deployutil.LatestDeploymentInfo(config, existingDeployments)
+	if !latestIsDeployed {
+		// We shouldn't be reconciling if the latest deployment hasn't been
+		// created; this is enforced on the calling side, but double checking
+		// can't hurt.
+		return nil
+	}
 	activeDeployment := deployutil.ActiveDeployment(config, existingDeployments)
-	_, latestDeployment := deployutil.LatestDeploymentInfo(config, existingDeployments)
-	activeDeploymentIsLatest := activeDeployment.Name == latestDeployment.Name
-	lastActiveReplicas, hasLastActiveReplicas := deployutil.DeploymentReplicas(activeDeployment)
-
 	// Compute the replica count for the active deployment (even if the active
 	// deployment doesn't exist). The active replica count is the value that
 	// should be assigned to the config, to allow the replica propagation to
@@ -167,7 +170,9 @@ func (c *DeploymentConfigController) reconcileDeployments(existingDeployments *k
 	// scalers).
 	activeReplicas := config.Template.ControllerTemplate.Replicas
 	if activeDeployment != nil {
+		activeDeploymentIsLatest := activeDeployment.Name == latestDeployment.Name
 		if activeDeploymentIsLatest {
+			lastActiveReplicas, hasLastActiveReplicas := deployutil.DeploymentReplicas(activeDeployment)
 			if !hasLastActiveReplicas || lastActiveReplicas != activeDeployment.Spec.Replicas {
 				activeReplicas = activeDeployment.Spec.Replicas
 			}
@@ -175,19 +180,15 @@ func (c *DeploymentConfigController) reconcileDeployments(existingDeployments *k
 			if activeDeployment.Spec.Replicas > 0 {
 				activeReplicas = activeDeployment.Spec.Replicas
 			}
-			if latestDeployment != nil {
-				latestDesiredReplicas, latestHasDesiredReplicas := deployutil.DeploymentDesiredReplicas(latestDeployment)
-				if latestHasDesiredReplicas {
-					activeReplicas = latestDesiredReplicas
-				}
-			}
-		}
-	} else {
-		if latestDeployment != nil {
 			latestDesiredReplicas, latestHasDesiredReplicas := deployutil.DeploymentDesiredReplicas(latestDeployment)
 			if latestHasDesiredReplicas {
 				activeReplicas = latestDesiredReplicas
 			}
+		}
+	} else {
+		latestDesiredReplicas, latestHasDesiredReplicas := deployutil.DeploymentDesiredReplicas(latestDeployment)
+		if latestHasDesiredReplicas {
+			activeReplicas = latestDesiredReplicas
 		}
 	}
 	// Bring the config in sync with the deployment. Once we know the config
