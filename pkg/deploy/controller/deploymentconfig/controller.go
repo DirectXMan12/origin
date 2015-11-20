@@ -139,12 +139,12 @@ func (c *DeploymentConfigController) Handle(config *deployapi.DeploymentConfig) 
 	return nil
 }
 
-// reconcileDeployments reconciles existing deployment replica counts
-// which could have diverged outside the deployment process (e.g. due to auto
-// or manual scaling). The active deployment is the last successful
-// deployment, not necessarily the latest in terms of the config version. The
-// active deployment replica count should follow the config, and all other
-// deployments should be scaled to zero.
+// reconcileDeployments reconciles existing deployment replica counts which
+// could have diverged outside the deployment process (e.g. due to auto or
+// manual scaling, or partially deployments). The active deployment is the
+// last successful deployment, not necessarily the latest in terms of the
+// config version. The active deployment replica count should follow the
+// config, and all other deployments should be scaled to zero.
 //
 // Previously, scaling behavior was that the config replica count was used
 // only for initial deployments and the active deployment had to be scaled up
