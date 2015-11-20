@@ -171,18 +171,22 @@ func (c *DeploymentConfigController) reconcileDeployments(existingDeployments *k
 	activeReplicas := config.Template.ControllerTemplate.Replicas
 	if activeDeployment != nil {
 		activeDeploymentIsLatest := activeDeployment.Name == latestDeployment.Name
+		lastActiveReplicas, hasLastActiveReplicas := deployutil.DeploymentReplicas(activeDeployment)
 		if activeDeploymentIsLatest {
-			lastActiveReplicas, hasLastActiveReplicas := deployutil.DeploymentReplicas(activeDeployment)
 			if !hasLastActiveReplicas || lastActiveReplicas != activeDeployment.Spec.Replicas {
 				activeReplicas = activeDeployment.Spec.Replicas
 			}
 		} else {
-			if activeDeployment.Spec.Replicas > 0 {
-				activeReplicas = activeDeployment.Spec.Replicas
-			}
-			latestDesiredReplicas, latestHasDesiredReplicas := deployutil.DeploymentDesiredReplicas(latestDeployment)
-			if latestHasDesiredReplicas {
-				activeReplicas = latestDesiredReplicas
+			if hasLastActiveReplicas {
+				activeReplicas = lastActiveReplicas
+			} else {
+				if activeDeployment.Spec.Replicas > 0 {
+					activeReplicas = activeDeployment.Spec.Replicas
+				}
+				latestDesiredReplicas, latestHasDesiredReplicas := deployutil.DeploymentDesiredReplicas(latestDeployment)
+				if latestHasDesiredReplicas {
+					activeReplicas = latestDesiredReplicas
+				}
 			}
 		}
 	} else {

@@ -288,7 +288,7 @@ func annotationFor(obj runtime.Object, key string) string {
 }
 
 func intAnnotationFor(obj runtime.Object, key string) (int, bool) {
-	s := annotationFor(obj, deployapi.DesiredReplicasAnnotation)
+	s := annotationFor(obj, key)
 	if len(s) == 0 {
 		return 0, false
 	}
