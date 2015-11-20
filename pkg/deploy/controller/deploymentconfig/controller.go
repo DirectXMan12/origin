@@ -177,9 +177,8 @@ func (c *DeploymentConfigController) reconcileDeployments(existingDeployments *k
 				activeReplicas = activeDeployment.Spec.Replicas
 			}
 		} else {
-			if hasLastActiveReplicas {
-				activeReplicas = lastActiveReplicas
-			} else {
+			replicasDifferent := lastActiveReplicas != activeDeployment.Spec.Replicas
+			if !hasLastActiveReplicas || (replicasDifferent && activeDeployment.Spec.Replicas != 0) {
 				if activeDeployment.Spec.Replicas > 0 {
 					activeReplicas = activeDeployment.Spec.Replicas
 				}

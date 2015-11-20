@@ -303,6 +303,36 @@ func TestHandleScenarios(t *testing.T) {
 			},
 			errExpected: false,
 		},
+		{
+			name:             "this version already failed, fallback, previously synced (different DC count)",
+			replicas:         3,
+			newVersion:       2,
+			expectedReplicas: 3,
+			before: []deployment{
+				{version: 1, replicas: 0, replicasA: newint(2), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newint(2), desiredA: newint(5), status: deployapi.DeploymentStatusFailed, cancelled: true},
+			},
+			after: []deployment{
+				{version: 1, replicas: 3, replicasA: newint(3), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newint(0), desiredA: newint(5), status: deployapi.DeploymentStatusFailed, cancelled: true},
+			},
+			errExpected: false,
+		},
+		{
+			name:             "already did fallback, previously synced, new scale",
+			replicas:         3,
+			newVersion:       2,
+			expectedReplicas: 3,
+			before: []deployment{
+				{version: 1, replicas: 2, replicasA: newint(2), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newint(2), desiredA: newint(5), status: deployapi.DeploymentStatusFailed, cancelled: true},
+			},
+			after: []deployment{
+				{version: 1, replicas: 3, replicasA: newint(3), status: deployapi.DeploymentStatusComplete, cancelled: false},
+				{version: 2, replicas: 0, replicasA: newint(0), desiredA: newint(5), status: deployapi.DeploymentStatusFailed, cancelled: true},
+			},
+			errExpected: false,
+		},
 	}
 
 	for _, test := range tests {
