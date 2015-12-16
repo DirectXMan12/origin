@@ -118,17 +118,17 @@ unset KUBECONFIG
 ${OS_ROOT}/hack/test-util.sh > ${LOG_DIR}/wrappers_test.log 2>&1
 
 # handle profiling defaults
-profile="${OPENSHIFT_PROFILE-}"
-unset OPENSHIFT_PROFILE
-if [[ -n "${profile}" ]]; then
-    if [[ "${TEST_PROFILE-}" == "cli" ]]; then
-        export CLI_PROFILE="${profile}"
-    else
-        export WEB_PROFILE="${profile}"
-    fi
-else
-  export WEB_PROFILE=cpu
-fi
+#profile="${OPENSHIFT_PROFILE-}"
+#unset OPENSHIFT_PROFILE
+#if [[ -n "${profile}" ]]; then
+#    if [[ "${TEST_PROFILE-}" == "cli" ]]; then
+#        export CLI_PROFILE="${profile}"
+#    else
+#        export WEB_PROFILE="${profile}"
+#    fi
+#else
+#  export WEB_PROFILE=cpu
+#fi
 
 # Check openshift version
 echo "openshift version:"
@@ -139,7 +139,7 @@ echo "oc version:"
 oc version
 
 # profile the web
-export OPENSHIFT_PROFILE="${WEB_PROFILE-}"
+#export OPENSHIFT_PROFILE="${WEB_PROFILE-}"
 
 # Specify the scheme and port for the listen address, but let the IP auto-discover. Set --public-master to localhost, for a stable link to the console.
 echo "[INFO] Create certificates for the OpenShift server to ${MASTER_CONFIG_DIR}"
@@ -208,7 +208,7 @@ wait_for_url "${API_SCHEME}://${API_HOST}:${API_PORT}/healthz" "apiserver: " 0.2
 wait_for_url "${API_SCHEME}://${API_HOST}:${API_PORT}/healthz/ready" "apiserver(ready): " 0.25 80
 
 # profile the cli commands
-export OPENSHIFT_PROFILE="${CLI_PROFILE-}"
+#export OPENSHIFT_PROFILE="${CLI_PROFILE-}"
 
 #
 # Begin tests
