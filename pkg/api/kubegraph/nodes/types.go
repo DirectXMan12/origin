@@ -12,6 +12,7 @@ import (
 
 var (
 	ServiceNodeKind                   = reflect.TypeOf(kapi.Service{}).Name()
+	EndpointsNodeKind                 = reflect.TypeOf(kapi.Endpoints{}).Name()
 	PodNodeKind                       = reflect.TypeOf(kapi.Pod{}).Name()
 	PodSpecNodeKind                   = reflect.TypeOf(kapi.PodSpec{}).Name()
 	PodTemplateSpecNodeKind           = reflect.TypeOf(kapi.PodTemplateSpec{}).Name()
@@ -46,6 +47,37 @@ func (*ServiceNode) Kind() string {
 }
 
 func (n ServiceNode) Found() bool {
+	return n.IsFound
+}
+
+func EndpointsNodeName(o *kapi.Endpoints) osgraph.UniqueName {
+	return osgraph.GetUniqueRuntimeObjectNodeName(EndpointsNodeKind, o)
+}
+
+type EndpointsNode struct {
+	osgraph.Node
+	*kapi.Endpoints
+
+	IsFound bool
+}
+
+func (n EndpointsNode) Object() interface{} {
+	return n.Endpoints
+}
+
+func (n EndpointsNode) String() string {
+	return string(EndpointsNodeName(n.Endpoints))
+}
+
+func (n EndpointsNode) ResourceString() string {
+	return "svc/" + n.Name
+}
+
+func (*EndpointsNode) Kind() string {
+	return EndpointsNodeKind
+}
+
+func (n EndpointsNode) Found() bool {
 	return n.IsFound
 }
 

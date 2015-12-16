@@ -30,6 +30,8 @@ const (
 	ReferencedServiceAccountEdgeKind = "ReferencedServiceAccount"
 	// ScalingEdgeKind goes from HorizontalPodAutoscaler to scaled objects indicating that the HPA scales the object
 	ScalingEdgeKind = "Scaling"
+	// HasEndpointsEdgeKind goes from Service to Endpoints, indicating that a service points to those endpoints.
+	HasEndpointsEdgeKind = "HasEndpoints"
 )
 
 // AddExposedPodTemplateSpecEdges ensures that a directed edge exists between a service and all the PodTemplateSpecs
@@ -239,5 +241,16 @@ func AddHPAScaleRefEdges(g osgraph.Graph) {
 		}
 
 		g.AddEdge(hpaNode, syntheticNode, ScalingEdgeKind)
+	}
+}
+
+func AddAllHasEndpointsEdges(g osgraph.Graph) {
+	for _, node := range g.Nodes() {
+		if serviceNode, ok := node.(*kubegraph.ServiceNode); ok {
+			endptsName := osgraph.GetUniqueRuntimeObjectNodeName(kubegraph.EndpointsNodeKind, serviceNode.Service)
+			if endptsNode := g.Find(endptsName); endptsNode != nil {
+				g.AddEdge(serviceNode, endptsNode, HasEndpointsEdgeKind)
+			}
+		}
 	}
 }

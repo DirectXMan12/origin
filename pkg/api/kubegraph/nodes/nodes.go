@@ -43,6 +43,16 @@ func EnsureServiceNode(g osgraph.MutableUniqueGraph, svc *kapi.Service) *Service
 	).(*ServiceNode)
 }
 
+// EnsureEndpointsNode adds the provided endpoints to the graph if it does not already exist.
+func EnsureEndpointsNode(g osgraph.MutableUniqueGraph, endpts *kapi.Endpoints) *EndpointsNode {
+	return osgraph.EnsureUnique(g,
+		EndpointsNodeName(endpts),
+		func(node osgraph.Node) graph.Node {
+			return &EndpointsNode{node, endpts, true}
+		},
+	).(*EndpointsNode)
+}
+
 // FindOrCreateSyntheticServiceNode returns the existing service node or creates a synthetic node in its place
 func FindOrCreateSyntheticServiceNode(g osgraph.MutableUniqueGraph, svc *kapi.Service) *ServiceNode {
 	return osgraph.EnsureUnique(g,

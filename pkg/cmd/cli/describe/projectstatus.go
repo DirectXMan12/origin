@@ -57,24 +57,46 @@ type ProjectStatusDescriber struct {
 	SetProbeCommandName         string
 }
 
-func (d *ProjectStatusDescriber) MakeGraph(namespace string) (osgraph.Graph, sets.String, error) {
+func (d *ProjectStatusDescriber) MakePartialGraph(namespace string, resourceTypes ...string) {
+}
+
+func (d *ProjectStatusDescriber) MakeGraph(namespace string, resourceTypes ...string) (osgraph.Graph, sets.String, error) {
 	g := osgraph.New()
 
-	loaders := []GraphLoader{
-		&serviceLoader{namespace: namespace, lister: d.K},
-		&serviceAccountLoader{namespace: namespace, lister: d.K},
-		&secretLoader{namespace: namespace, lister: d.K},
-		&rcLoader{namespace: namespace, lister: d.K},
-		&podLoader{namespace: namespace, lister: d.K},
-		&horizontalPodAutoscalerLoader{namespace: namespace, lister: d.K.Extensions()},
+	allLoaders := map[string]GraphLoader{
+		"services":                 &serviceLoader{namespace: namespace, lister: d.K},
+		"serviceaccounts":          &serviceAccountLoader{namespace: namespace, lister: d.K},
+		"secrets":                  &secretLoader{namespace: namespace, lister: d.K},
+		"replicationcontrollers":   &rcLoader{namespace: namespace, lister: d.K},
+		"pods":                     &podLoader{namespace: namespace, lister: d.K},
+		"horizontalpodautoscalers": &horizontalPodAutoscalerLoader{namespace: namespace, lister: d.K.Extensions()},
+		"endpoints":                &endpointsLoader{namespace: namespace, lister: d.K},
 		// TODO check swagger for feature enablement and selectively add bcLoader and buildLoader
 		// then remove errors.TolerateNotFoundError method.
-		&bcLoader{namespace: namespace, lister: d.C},
-		&buildLoader{namespace: namespace, lister: d.C},
-		&isLoader{namespace: namespace, lister: d.C},
-		&dcLoader{namespace: namespace, lister: d.C},
-		&routeLoader{namespace: namespace, lister: d.C},
+		"buildconfigs":             &bcLoader{namespace: namespace, lister: d.C},
+		"builds":                   &buildLoader{namespace: namespace, lister: d.C},
+		"imagestreams":             &isLoader{namespace: namespace, lister: d.C},
+		"deploymentconfigs":        &dcLoader{namespace: namespace, lister: d.C},
+		"routes":                   &routeLoader{namespace: namespace, lister: d.C},
 	}
+
+	var loaders []GraphLoader
+
+	if len(resourceTypes) == 0 {
+		loaders = make([]GraphLoader, 0, len(allLoaders))
+		for _, loader := range allLoaders {
+			loaders = append(loaders, loader)
+		}
+	} else {
+		loaders = make([]GraphLoader, len(resourceTypes))
+		for i, res := range resourceTypes {
+			// TODO: gracefully return error here?
+			if loader, ok := allLoaders[res]; ok {
+				loaders[i] = loader
+			}
+		}
+	}
+
 	loadingFuncs := []func() error{}
 	for _, loader := range loaders {
 		loadingFuncs = append(loadingFuncs, loader.Load)
@@ -110,6 +132,7 @@ func (d *ProjectStatusDescriber) MakeGraph(namespace string) (osgraph.Graph, set
 	kubeedges.AddAllMountableSecretEdges(g)
 	kubeedges.AddAllMountedSecretEdges(g)
 	kubeedges.AddHPAScaleRefEdges(g)
+	kubeedges.AddAllHasEndpointsEdges(g)
 	buildedges.AddAllInputOutputEdges(g)
 	buildedges.AddAllBuildEdges(g)
 	deployedges.AddAllTriggerEdges(g)
@@ -1158,6 +1181,30 @@ func (l *serviceLoader) Load() error {
 func (l *serviceLoader) AddToGraph(g osgraph.Graph) error {
 	for i := range l.items {
 		kubegraph.EnsureServiceNode(g, &l.items[i])
+	}
+
+	return nil
+}
+
+type endpointsLoader struct {
+	namespace string
+	lister    kclient.EndpointsNamespacer
+	items     []kapi.Endpoints
+}
+
+func (l *endpointsLoader) Load() error {
+	list, err := l.lister.Endpoints(l.namespace).List(kapi.ListOptions{})
+	if err != nil {
+		return err
+	}
+
+	l.items = list.Items
+	return nil
+}
+
+func (l *endpointsLoader) AddToGraph(g osgraph.Graph) error {
+	for i := range l.items {
+		kubegraph.EnsureEndpointsNode(g, &l.items[i])
 	}
 
 	return nil
