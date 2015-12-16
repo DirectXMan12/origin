@@ -75,6 +75,7 @@ func NewCommandCLI(name, fullName string, in io.Reader, out, errout io.Writer) *
 				cmd.NewCmdNewApplication(fullName, f, out),
 				cmd.NewCmdStatus(cmd.StatusRecommendedName, fullName+" "+cmd.StatusRecommendedName, f, out),
 				cmd.NewCmdProject(fullName+" project", f, out),
+				cmd.NewCmdIdle(fullName, f, out),
 			},
 		},
 		{

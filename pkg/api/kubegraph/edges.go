@@ -22,6 +22,8 @@ const (
 	MountableSecretEdgeKind = "MountableSecret"
 	// ReferencedServiceAccountEdgeKind goes from PodSpec to ServiceAccount indicating that Pod is or will be running as the SA.
 	ReferencedServiceAccountEdgeKind = "ReferencedServiceAccount"
+	// HasEndpointsEdgeKind goes from Service to Endpoints, indicating that a service points to those endpoints.
+	HasEndpointsEdgeKind = "HasEndpoints"
 )
 
 // AddExposedPodTemplateSpecEdges ensures that a directed edge exists between a service and all the PodTemplateSpecs
@@ -184,6 +186,17 @@ func AddAllRequestedServiceAccountEdges(g osgraph.Graph) {
 	for _, node := range g.Nodes() {
 		if podSpecNode, ok := node.(*kubegraph.PodSpecNode); ok {
 			AddRequestedServiceAccountEdges(g, podSpecNode)
+		}
+	}
+}
+
+func AddAllHasEndpointsEdges(g osgraph.Graph) {
+	for _, node := range g.Nodes() {
+		if serviceNode, ok := node.(*kubegraph.ServiceNode); ok {
+			endptsName := osgraph.GetUniqueRuntimeObjectNodeName(kubegraph.EndpointsNodeKind, serviceNode.Service)
+			if endptsNode := g.Find(endptsName); endptsNode != nil {
+				g.AddEdge(serviceNode, endptsNode, HasEndpointsEdgeKind)
+			}
 		}
 	}
 }
