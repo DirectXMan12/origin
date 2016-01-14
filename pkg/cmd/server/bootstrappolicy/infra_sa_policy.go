@@ -49,6 +49,9 @@ const (
 	InfraServiceLoadBalancerControllerServiceAccountName = "service-load-balancer-controller"
 	ServiceLoadBalancerControllerRoleName                = "system:service-load-balancer-controller"
 
+	InfraUnidlingControllerServiceAccountName = "unidling-controller"
+	UnidlingControllerRoleName                = "system:unidling-controller"
+
 	ServiceServingCertServiceAccountName = "service-serving-cert-controller"
 	ServiceServingCertControllerRoleName = "system:service-serving-cert-controller"
 
@@ -625,6 +628,38 @@ func init() {
 				{
 					Verbs:     sets.NewString("create", "update", "patch"),
 					Resources: sets.NewString("events"),
+				},
+			},
+		},
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	err = InfraSAs.addServiceAccount(
+		InfraUnidlingControllerServiceAccountName,
+		authorizationapi.ClusterRole{
+			ObjectMeta: kapi.ObjectMeta{
+				Name: UnidlingControllerRoleName,
+			},
+			Rules: []authorizationapi.PolicyRule{
+				{
+					APIGroups: []string{kapi.GroupName, extensions.GroupName},
+					Verbs:     sets.NewString("get", "update"),
+					Resources: sets.NewString("replicationcontrollers/scale"),
+				},
+				{
+					Verbs:     sets.NewString("get", "update"),
+					Resources: sets.NewString("deploymentconfigs/scale"),
+				},
+				{
+					Verbs:     sets.NewString("list", "watch"),
+					Resources: sets.NewString("events"),
+				},
+				{
+					APIGroups: []string{kapi.GroupName},
+					Verbs:     sets.NewString("get", "update"),
+					Resources: sets.NewString("endpoints"),
 				},
 			},
 		},

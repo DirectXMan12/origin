@@ -30,6 +30,7 @@ import (
 	buildclient "github.com/openshift/origin/pkg/build/client"
 	buildcontrollerfactory "github.com/openshift/origin/pkg/build/controller/factory"
 	buildstrategy "github.com/openshift/origin/pkg/build/controller/strategy"
+	osclient "github.com/openshift/origin/pkg/client"
 	"github.com/openshift/origin/pkg/cmd/server/crypto"
 	cmdutil "github.com/openshift/origin/pkg/cmd/util"
 	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
@@ -45,6 +46,7 @@ import (
 	"github.com/openshift/origin/pkg/security/uid"
 	"github.com/openshift/origin/pkg/security/uidallocator"
 	servingcertcontroller "github.com/openshift/origin/pkg/service/controller/servingcert"
+	unidlingcontroller "github.com/openshift/origin/pkg/unidling/controller"
 
 	configapi "github.com/openshift/origin/pkg/cmd/server/api"
 	"github.com/openshift/origin/pkg/cmd/server/bootstrappolicy"
@@ -515,4 +517,15 @@ func (c *MasterConfig) RunClusterQuotaReconciliationController() {
 	controller := clusterquotareconciliation.NewClusterQuotaReconcilationController(options)
 	c.ClusterQuotaMappingController.GetClusterQuotaMapper().AddListener(controller)
 	go controller.Run(5, utilwait.NeverStop)
+}
+
+// RunUnidlingController starts the unidling controller
+func (c *MasterConfig) RunUnidlingController() {
+	oc, kc := c.UnidlingControllerClients()
+	resyncPeriod := 2 * time.Hour
+	scaleNamespacer := osclient.NewDelegatingScaleNamespacer(oc, kc)
+	coreClient := clientadapter.FromUnversionedClient(kc).Core()
+	cont := unidlingcontroller.NewUnidlingController(scaleNamespacer, coreClient, coreClient, resyncPeriod)
+
+	cont.Run(utilwait.NeverStop)
 }
