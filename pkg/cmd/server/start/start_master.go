@@ -579,6 +579,8 @@ func startControllers(oc *origin.MasterConfig, kc *kubernetes.MasterConfig) erro
 	oc.RunOriginNamespaceController()
 	oc.RunSDNController()
 
+	oc.RunUnidlingController()
+
 	glog.Infof("Started Origin Controllers")
 
 	return nil

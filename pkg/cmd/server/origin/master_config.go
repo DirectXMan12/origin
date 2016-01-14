@@ -523,6 +523,12 @@ func (c *MasterConfig) OriginNamespaceControllerClients() (*osclient.Client, *kc
 	return c.PrivilegedLoopbackOpenShiftClient, c.PrivilegedLoopbackKubernetesClient
 }
 
+// UnidlingControllerClients returns the unidling controller clients
+func (c *MasterConfig) UnidlingControllerClients() (*osclient.Client, *kclient.Client) {
+	// TODO(directxman12): make this use service account clients
+	return c.PrivilegedLoopbackOpenShiftClient, c.PrivilegedLoopbackKubernetesClient
+}
+
 // NewEtcdHelper returns an EtcdHelper for the provided storage version.
 func NewEtcdStorage(client *etcdclient.Client, version, prefix string) (oshelper storage.Interface, err error) {
 	interfaces, err := latest.InterfacesFor(version)

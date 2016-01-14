@@ -20,6 +20,7 @@ import (
 	buildclient "github.com/openshift/origin/pkg/build/client"
 	buildcontrollerfactory "github.com/openshift/origin/pkg/build/controller/factory"
 	buildstrategy "github.com/openshift/origin/pkg/build/controller/strategy"
+	osclient "github.com/openshift/origin/pkg/client"
 	cmdutil "github.com/openshift/origin/pkg/cmd/util"
 	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	configchangecontroller "github.com/openshift/origin/pkg/deploy/controller/configchange"
@@ -34,6 +35,7 @@ import (
 	"github.com/openshift/origin/pkg/security/mcs"
 	"github.com/openshift/origin/pkg/security/uid"
 	"github.com/openshift/origin/pkg/security/uidallocator"
+	unidlingcontroller "github.com/openshift/origin/pkg/unidling"
 
 	"github.com/openshift/openshift-sdn/plugins/osdn/factory"
 	configapi "github.com/openshift/origin/pkg/cmd/server/api"
@@ -405,4 +407,14 @@ func (c *MasterConfig) RunSecurityAllocationController() {
 // RunGroupCache starts the group cache
 func (c *MasterConfig) RunGroupCache() {
 	c.GroupCache.Run()
+}
+
+// RunUnidlingController starts the unidling controller
+func (c *MasterConfig) RunUnidlingController() {
+	oc, kc := c.UnidlingControllerClients()
+	resyncPeriod := 2 * time.Minute
+	delegScaleNamespacer := osclient.NewDelegatingScaleNamespacer(oc, kc)
+	cont := unidlingcontroller.NewUnidlingController(delegScaleNamespacer, kc, kc, resyncPeriod)
+
+	cont.Run(util.NeverStop)
 }
