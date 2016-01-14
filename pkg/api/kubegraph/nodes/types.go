@@ -69,10 +69,6 @@ func (n EndpointsNode) String() string {
 	return string(EndpointsNodeName(n.Endpoints))
 }
 
-func (n EndpointsNode) ResourceString() string {
-	return "svc/" + n.Name
-}
-
 func (*EndpointsNode) Kind() string {
 	return EndpointsNodeKind
 }

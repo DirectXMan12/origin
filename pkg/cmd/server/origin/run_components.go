@@ -30,6 +30,7 @@ import (
 	buildcontrollerfactory "github.com/openshift/origin/pkg/build/controller/factory"
 	buildstrategy "github.com/openshift/origin/pkg/build/controller/strategy"
 	"github.com/openshift/origin/pkg/cmd/server/crypto"
+	osclient "github.com/openshift/origin/pkg/client"
 	cmdutil "github.com/openshift/origin/pkg/cmd/util"
 	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	deployerpodcontroller "github.com/openshift/origin/pkg/deploy/controller/deployerpod"
@@ -45,6 +46,7 @@ import (
 	"github.com/openshift/origin/pkg/security/uid"
 	"github.com/openshift/origin/pkg/security/uidallocator"
 	servingcertcontroller "github.com/openshift/origin/pkg/service/controller/servingcert"
+	unidlingcontroller "github.com/openshift/origin/pkg/unidling"
 
 	"github.com/openshift/openshift-sdn/plugins/osdn/factory"
 	configapi "github.com/openshift/origin/pkg/cmd/server/api"
@@ -502,4 +504,14 @@ func (c *MasterConfig) RunResourceQuotaManager(cm *cmapp.CMServer) {
 		ReplenishmentResyncPeriod: replenishmentSyncPeriodFunc,
 	}
 	go kresourcequota.NewResourceQuotaController(resourceQuotaControllerOptions).Run(concurrentResourceQuotaSyncs, utilwait.NeverStop)
+}
+
+// RunUnidlingController starts the unidling controller
+func (c *MasterConfig) RunUnidlingController() {
+	oc, kc := c.UnidlingControllerClients()
+	resyncPeriod := 2 * time.Minute
+	delegScaleNamespacer := osclient.NewDelegatingScaleNamespacer(oc, kc)
+	cont := unidlingcontroller.NewUnidlingController(delegScaleNamespacer, kc, kc, resyncPeriod)
+
+	cont.Run(utilwait.NeverStop)
 }
