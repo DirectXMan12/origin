@@ -24,6 +24,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/dockertools"
 	proxy "k8s.io/kubernetes/pkg/proxy"
 	pconfig "k8s.io/kubernetes/pkg/proxy/config"
+	"k8s.io/kubernetes/pkg/proxy/hybrid"
 	"k8s.io/kubernetes/pkg/proxy/iptables"
 	"k8s.io/kubernetes/pkg/proxy/userspace"
 	utildbus "k8s.io/kubernetes/pkg/util/dbus"
@@ -421,14 +422,29 @@ func (c *NodeConfig) RunProxy() {
 	default:
 		glog.Fatalf("Unknown proxy mode %q", c.ProxyConfig.Mode)
 	}
-	iptInterface.AddReloadFunc(proxier.Sync)
 
 	// Create configs (i.e. Watches for Services and Endpoints)
 	// Note: RegisterHandler() calls need to happen before creation of Sources because sources
 	// only notify on changes, and the initial update (on process start) may be lost if no handlers
 	// are registered yet.
 	serviceConfig := pconfig.NewServiceConfig()
-	serviceConfig.RegisterHandler(proxier)
+
+	unidlingLoadBalancer := userspace.NewLoadBalancerRR()
+	unidlingUserspaceProxy, err := userspace.NewProxier(unidlingLoadBalancer, bindAddr, iptInterface, *portRange, c.ProxyConfig.IPTablesSyncPeriod.Duration, c.ProxyConfig.UDPIdleTimeout.Duration)
+	if err != nil {
+		glog.Warningf("WARNING: Could not initialize Kubernetes Proxy. You must run this process as root to use the service proxy: %v", err)
+		return
+	}
+	hybridProxier, err := hybrid.NewProxier(unidlingLoadBalancer, unidlingUserspaceProxy, endpointsHandler, proxier, c.ProxyConfig.IPTablesSyncPeriod.Duration, serviceConfig)
+	if err != nil {
+		// This should be fatal, but that would break the integration tests
+		glog.Warningf("WARNING: Could not initialize Kubernetes Proxy. You must run this process as root to use the service proxy: %v", err)
+		return
+	}
+	endpointsHandler = hybridProxier
+
+	iptInterface.AddReloadFunc(hybridProxier.Sync)
+	serviceConfig.RegisterHandler(hybridProxier)
 
 	endpointsConfig := pconfig.NewEndpointsConfig()
 	// customized handling registration that inserts a filter if needed
