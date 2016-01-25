@@ -15,7 +15,11 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/cadvisor"
 	"k8s.io/kubernetes/pkg/kubelet/dockertools"
 	pconfig "k8s.io/kubernetes/pkg/proxy/config"
-	proxy "k8s.io/kubernetes/pkg/proxy/iptables"
+	//proxy "k8s.io/kubernetes/pkg/proxy/iptables"
+	proxy "k8s.io/kubernetes/pkg/proxy/hybrid"
+	iproxy "k8s.io/kubernetes/pkg/proxy/iptables"
+	uproxy "k8s.io/kubernetes/pkg/proxy/userspace"
+	"k8s.io/kubernetes/pkg/util"
 	utildbus "k8s.io/kubernetes/pkg/util/dbus"
 	kexec "k8s.io/kubernetes/pkg/util/exec"
 	"k8s.io/kubernetes/pkg/util/iptables"
@@ -211,7 +215,19 @@ func (c *NodeConfig) RunProxy() {
 	exec := kexec.New()
 	dbus := utildbus.New()
 	iptables := iptables.New(exec, dbus, protocol)
-	proxier, err := proxy.NewProxier(iptables, exec, syncPeriod, false)
+	loadBalancer := uproxy.NewLoadBalancerRR()
+	iptablesProxy, err := iproxy.NewProxier(iptables, exec, syncPeriod, false)
+	if err != nil {
+		glog.Warningf("WARNING: Could not initialize Kubernetes Proxy. You must run this process as root to use the service proxy: %v", err)
+		return
+	}
+
+	userspaceProxy, err := uproxy.NewProxier(loadBalancer, ip, iptables, util.PortRange{}, syncPeriod)
+	if err != nil {
+		glog.Warningf("WARNING: Could not initialize Kubernetes Proxy. You must run this process as root to use the service proxy: %v", err)
+		return
+	}
+	proxier, err := proxy.NewProxier(loadBalancer, iptablesProxy, userspaceProxy, syncPeriod, serviceConfig)
 	if err != nil {
 		// This should be fatal, but that would break the integration tests
 		glog.Warningf("WARNING: Could not initialize Kubernetes Proxy. You must run this process as root to use the service proxy: %v", err)
