@@ -222,7 +222,7 @@ func (c *NodeConfig) RunProxy() {
 		return
 	}
 
-	userspaceProxy, err := uproxy.NewProxier(loadBalancer, ip, iptables, util.PortRange{}, syncPeriod)
+	userspaceProxy, err := uproxy.NewUnidlerProxier(loadBalancer, ip, iptables, util.PortRange{}, syncPeriod, recorder)
 	if err != nil {
 		glog.Warningf("WARNING: Could not initialize Kubernetes Proxy. You must run this process as root to use the service proxy: %v", err)
 		return
