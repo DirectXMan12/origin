@@ -27,6 +27,7 @@ import (
 
 	"github.com/golang/glog"
 	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/client/record"
 	"k8s.io/kubernetes/pkg/proxy"
 	"k8s.io/kubernetes/pkg/types"
 	utilnet "k8s.io/kubernetes/pkg/util/net"
@@ -54,6 +55,7 @@ type serviceInfo struct {
 	loadBalancerStatus  api.LoadBalancerStatus
 	sessionAffinityType api.ServiceAffinity
 	stickyMaxAgeMinutes int
+	ref                 *api.ObjectReference
 	// Deprecated, but required for back-compat (including e2e)
 	externalIPs []string
 }
@@ -80,6 +82,8 @@ func logTimeout(err error) bool {
 	return false
 }
 
+type ProxySocketFunc func(protocol api.Protocol, ip net.IP, port int) (proxySocket, error)
+
 // Proxier is a simple proxy for TCP connections between a localhost:lport
 // and services that provide the actual implementations.
 type Proxier struct {
@@ -95,6 +99,7 @@ type Proxier struct {
 	iptables       iptables.Interface
 	hostIP         net.IP
 	proxyPorts     PortAllocator
+	makeProxySocket ProxySocketFunc
 }
 
 // assert Proxier is a ProxyProvider
@@ -140,6 +145,21 @@ func IsProxyLocked(err error) bool {
 // created, it will keep iptables up to date in the background and will not
 // terminate if a particular iptables call fails.
 func NewProxier(loadBalancer LoadBalancer, listenIP net.IP, iptables iptables.Interface, pr utilnet.PortRange, syncPeriod, udpIdleTimeout time.Duration) (*Proxier, error) {
+	return NewCustomProxier(loadBalancer, listenIP, iptables, pr, syncPeriod, udpIdleTimeout, newProxySocket)
+}
+
+// NewUnidlerProxier works just like NewProxier, except that it creates an unidling proxy
+// designed to work as part of the hybrid proxier.
+func NewUnidlerProxier(loadBalancer LoadBalancer, listenIP net.IP, iptables iptables.Interface, pr utilnet.PortRange, syncPeriod, udpIdleTimeout time.Duration, recorder record.EventRecorder) (*Proxier, error) {
+	newFunc := func(protocol api.Protocol, ip net.IP, port int) (proxySocket, error) {
+		return newUnidlerSocket(protocol, ip, port, recorder)
+	}
+	return NewCustomProxier(loadBalancer, listenIP, iptables, pr, syncPeriod, udpIdleTimeout, newFunc)
+}
+
+// NewCustomProxier works just like NewProxier, except that it takes a custom function for actually
+// proxying the socket.
+func NewCustomProxier(loadBalancer LoadBalancer, listenIP net.IP, iptables iptables.Interface, pr utilnet.PortRange, syncPeriod, udpIdleTimeout time.Duration, makeProxySocket ProxySocketFunc) (*Proxier, error) {
 	if listenIP.Equal(localhostIPv4) || listenIP.Equal(localhostIPv6) {
 		return nil, ErrProxyOnLocalhost
 	}
@@ -157,10 +177,10 @@ func NewProxier(loadBalancer LoadBalancer, listenIP net.IP, iptables iptables.In
 	proxyPorts := newPortAllocator(pr)
 
 	glog.V(2).Infof("Setting proxy IP to %v and initializing iptables", hostIP)
-	return createProxier(loadBalancer, listenIP, iptables, hostIP, proxyPorts, syncPeriod, udpIdleTimeout)
+	return createProxier(loadBalancer, listenIP, iptables, hostIP, proxyPorts, syncPeriod, udpIdleTimeout, makeProxySocket)
 }
 
-func createProxier(loadBalancer LoadBalancer, listenIP net.IP, iptables iptables.Interface, hostIP net.IP, proxyPorts PortAllocator, syncPeriod, udpIdleTimeout time.Duration) (*Proxier, error) {
+func createProxier(loadBalancer LoadBalancer, listenIP net.IP, iptables iptables.Interface, hostIP net.IP, proxyPorts PortAllocator, syncPeriod, udpIdleTimeout time.Duration, makeProxySocket ProxySocketFunc) (*Proxier, error) {
 	// convenient to pass nil for tests..
 	if proxyPorts == nil {
 		proxyPorts = newPortAllocator(utilnet.PortRange{})
@@ -184,6 +204,7 @@ func createProxier(loadBalancer LoadBalancer, listenIP net.IP, iptables iptables
 		iptables:       iptables,
 		hostIP:         hostIP,
 		proxyPorts:     proxyPorts,
+		makeProxySocket: makeProxySocket,
 	}, nil
 }
 
@@ -330,8 +351,8 @@ func (proxier *Proxier) setServiceInfo(service proxy.ServicePortName, info *serv
 // addServiceOnPort starts listening for a new service, returning the serviceInfo.
 // Pass proxyPort=0 to allocate a random port. The timeout only applies to UDP
 // connections, for now.
-func (proxier *Proxier) addServiceOnPort(service proxy.ServicePortName, protocol api.Protocol, proxyPort int, timeout time.Duration) (*serviceInfo, error) {
-	sock, err := newProxySocket(protocol, proxier.listenIP, proxyPort)
+func (proxier *Proxier) addServiceOnPort(service proxy.ServicePortName, ref *api.ObjectReference, protocol api.Protocol, proxyPort int, timeout time.Duration) (*serviceInfo, error) {
+	sock, err := proxier.makeProxySocket(protocol, proxier.listenIP, proxyPort)
 	if err != nil {
 		return nil, err
 	}
@@ -354,6 +375,7 @@ func (proxier *Proxier) addServiceOnPort(service proxy.ServicePortName, protocol
 		activeClients:       newClientCache(),
 		sessionAffinityType: api.ServiceAffinityNone, // default
 		stickyMaxAgeMinutes: 180,                     // TODO: parameterize this in the API.
+		ref:                 ref,
 	}
 	proxier.setServiceInfo(service, si)
 
@@ -413,7 +435,12 @@ func (proxier *Proxier) OnServiceUpdate(services []api.Service) {
 			}
 
 			glog.V(1).Infof("Adding new service %q at %s:%d/%s", serviceName, serviceIP, servicePort.Port, servicePort.Protocol)
-			info, err = proxier.addServiceOnPort(serviceName, servicePort.Protocol, proxyPort, proxier.udpIdleTimeout)
+			svcRef, err := api.GetReference(service)
+			if err != nil {
+				glog.Errorf("Failed to start proxy for %q: %v", serviceName, err)
+				continue
+			}
+			info, err = proxier.addServiceOnPort(serviceName, svcRef, servicePort.Protocol, proxyPort, proxier.udpIdleTimeout)
 			if err != nil {
 				glog.Errorf("Failed to start proxy for %q: %v", serviceName, err)
 				continue
@@ -584,7 +611,7 @@ func (proxier *Proxier) claimNodePort(ip net.IP, port int, protocol api.Protocol
 		// it.  Tools like 'ss' and 'netstat' do not show sockets that are
 		// bind()ed but not listen()ed, and at least the default debian netcat
 		// has no way to avoid about 10 seconds of retries.
-		socket, err := newProxySocket(protocol, ip, port)
+		socket, err := proxier.makeProxySocket(protocol, ip, port)
 		if err != nil {
 			return fmt.Errorf("can't open node port for %s: %v", key.String(), err)
 		}

@@ -112,6 +112,17 @@ func isSessionAffinity(affinity *affinityPolicy) bool {
 	return true
 }
 
+// ServiceHasEndpoints checks whether a service entry has endpoints.
+func (lb *LoadBalancerRR) ServiceHasEndpoints(svcPort proxy.ServicePortName) bool {
+	lb.lock.Lock()
+	defer lb.lock.Unlock()
+	if state, exists := lb.services[svcPort]; exists && state != nil && len(state.endpoints) > 0 {
+		return true
+	} else {
+		return false
+	}
+}
+
 // NextEndpoint returns a service endpoint.
 // The service endpoint is chosen using the round-robin algorithm.
 func (lb *LoadBalancerRR) NextEndpoint(svcPort proxy.ServicePortName, srcAddr net.Addr, sessionAffinityReset bool) (string, error) {
