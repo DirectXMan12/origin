@@ -15,6 +15,7 @@ import (
 	"github.com/golang/glog"
 
 	"github.com/openshift/origin/pkg/proxy/hybrid"
+	"github.com/openshift/origin/pkg/proxy/unidler"
 	ouserspace "github.com/openshift/origin/pkg/proxy/userspace"
 	kubeletapp "k8s.io/kubernetes/cmd/kubelet/app"
 	kapi "k8s.io/kubernetes/pkg/api"
@@ -431,7 +432,8 @@ func (c *NodeConfig) RunProxy() {
 	serviceConfig := pconfig.NewServiceConfig()
 
 	unidlingLoadBalancer := ouserspace.NewLoadBalancerRR()
-	unidlingUserspaceProxy, err := ouserspace.NewProxier(unidlingLoadBalancer, bindAddr, iptInterface, *portRange, c.ProxyConfig.IPTablesSyncPeriod.Duration, c.ProxyConfig.UDPIdleTimeout.Duration)
+	signaler := unidler.NewEventSignaler(recorder)
+	unidlingUserspaceProxy, err := unidler.NewUnidlerProxier(unidlingLoadBalancer, bindAddr, iptInterface, execer, *portRange, c.ProxyConfig.IPTablesSyncPeriod.Duration, c.ProxyConfig.UDPIdleTimeout.Duration, signaler)
 	if err != nil {
 		glog.Warningf("WARNING: Could not initialize Kubernetes Proxy. You must run this process as root to use the service proxy: %v", err)
 		return
