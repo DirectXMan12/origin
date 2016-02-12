@@ -39,8 +39,8 @@ func NewExtendedValidator(plugin router.Plugin, recorder RejectionRecorder) *Ext
 }
 
 // HandleEndpoints processes watch events on the Endpoints resource.
-func (p *ExtendedValidator) HandleEndpoints(eventType watch.EventType, endpoints *kapi.Endpoints) error {
-	return p.plugin.HandleEndpoints(eventType, endpoints)
+func (p *ExtendedValidator) HandleEndpoints(eventType watch.EventType, endpoints *kapi.Endpoints, svc *kapi.Service) error {
+	return p.plugin.HandleEndpoints(eventType, endpoints, svc)
 }
 
 // HandleRoute processes watch events on the Route resource.

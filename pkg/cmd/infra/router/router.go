@@ -143,7 +143,7 @@ func (o *RouterSelection) Complete() error {
 
 // NewFactory initializes a factory that will watch the requested routes
 func (o *RouterSelection) NewFactory(oc oclient.Interface, kc kclient.Interface) *controllerfactory.RouterControllerFactory {
-	factory := controllerfactory.NewDefaultRouterControllerFactory(oc, kc)
+	factory := controllerfactory.NewDefaultRouterControllerFactory(oc, kc, kc)
 	factory.Labels = o.Labels
 	factory.Fields = o.Fields
 	factory.Namespace = o.Namespace
