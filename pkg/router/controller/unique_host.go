@@ -77,11 +77,11 @@ func (p *UniqueHost) HostLen() int {
 }
 
 // HandleEndpoints processes watch events on the Endpoints resource.
-func (p *UniqueHost) HandleEndpoints(eventType watch.EventType, endpoints *kapi.Endpoints) error {
+func (p *UniqueHost) HandleEndpoints(eventType watch.EventType, endpoints *kapi.Endpoints, service *kapi.Service) error {
 	if p.allowedNamespaces != nil && !p.allowedNamespaces.Has(endpoints.Namespace) {
 		return nil
 	}
-	return p.plugin.HandleEndpoints(eventType, endpoints)
+	return p.plugin.HandleEndpoints(eventType, endpoints, service)
 }
 
 // HandleRoute processes watch events on the Route resource.

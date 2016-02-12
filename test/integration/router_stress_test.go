@@ -239,9 +239,9 @@ func (p *DelayPlugin) HandleRoute(eventType watch.EventType, route *routeapi.Rou
 	return p.plugin.HandleRoute(eventType, route)
 }
 
-func (p *DelayPlugin) HandleEndpoints(eventType watch.EventType, endpoints *kapi.Endpoints) error {
+func (p *DelayPlugin) HandleEndpoints(eventType watch.EventType, endpoints *kapi.Endpoints, service *kapi.Service) error {
 	p.delay()
-	return p.plugin.HandleEndpoints(eventType, endpoints)
+	return p.plugin.HandleEndpoints(eventType, endpoints, service)
 }
 
 func (p *DelayPlugin) HandleNamespaces(namespaces sets.String) error {
@@ -277,7 +277,7 @@ func launchRouter(oc osclient.Interface, kc kclient.Interface, maxDelay int32, n
 		plugin = NewDelayPlugin(plugin, maxDelay)
 	}
 
-	factory := controllerfactory.NewDefaultRouterControllerFactory(oc, kc)
+	factory := controllerfactory.NewDefaultRouterControllerFactory(oc, kc, kc)
 	controller := factory.Create(plugin)
 	controller.Run()
 
