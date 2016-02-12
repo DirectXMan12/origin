@@ -28,6 +28,7 @@ type RouterController struct {
 	Plugin        router.Plugin
 	NextRoute     func() (watch.EventType, *routeapi.Route, error)
 	NextEndpoints func() (watch.EventType, *kapi.Endpoints, error)
+	LookupService func(*kapi.Endpoints) (*kapi.Service, error)
 
 	Namespaces            NamespaceLister
 	NamespaceSyncInterval time.Duration
@@ -93,10 +94,16 @@ func (c *RouterController) HandleEndpoints() {
 		return
 	}
 
+	// NB: svc might be nil here
+	svc, err := c.LookupService(endpoints)
+	if err != nil {
+		util.HandleError(fmt.Errorf("error while looking up service corresponding to endpoints: %v", err))
+	}
+
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if err := c.Plugin.HandleEndpoints(eventType, endpoints); err != nil {
+	if err := c.Plugin.HandleEndpoints(eventType, endpoints, svc); err != nil {
 		util.HandleError(err)
 	}
 }

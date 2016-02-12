@@ -24,19 +24,21 @@ import (
 // controller. It supports optional scoping on Namespace, Labels, and Fields of routes.
 // If Namespace is empty, it means "all namespaces".
 type RouterControllerFactory struct {
-	KClient        kclient.EndpointsNamespacer
-	OSClient       osclient.RoutesNamespacer
-	Namespaces     controller.NamespaceLister
-	ResyncInterval time.Duration
-	Namespace      string
-	Labels         labels.Selector
-	Fields         fields.Selector
+	EndpointsNamespacer        kclient.EndpointsNamespacer
+	ServicesNamespacer         kclient.ServicesNamespacer
+	OSClient                   osclient.RoutesNamespacer
+	Namespaces                 controller.NamespaceLister
+	ResyncInterval             time.Duration
+	Namespace                  string
+	Labels                     labels.Selector
+	Fields                     fields.Selector
 }
 
 // NewDefaultRouterControllerFactory initializes a default router controller factory.
-func NewDefaultRouterControllerFactory(oc osclient.RoutesNamespacer, kc kclient.EndpointsNamespacer) *RouterControllerFactory {
+func NewDefaultRouterControllerFactory(oc osclient.RoutesNamespacer, endptsNS kclient.EndpointsNamespacer, svcNS kclient.ServicesNamespacer) *RouterControllerFactory {
 	return &RouterControllerFactory{
-		KClient:        kc,
+		EndpointsNamespacer:        endptsNS,
+		ServicesNamespacer:         svcNS,
 		OSClient:       oc,
 		ResyncInterval: 10 * time.Minute,
 
@@ -46,8 +48,8 @@ func NewDefaultRouterControllerFactory(oc osclient.RoutesNamespacer, kc kclient.
 	}
 }
 
-// Create begins listing and watching against the API server for the desired route and endpoint
-// resources. It spawns child goroutines that cannot be terminated.
+// Create begins listing and watching against the API server for the desired route, endpoint, and
+// service resources. It spawns child goroutines that cannot be terminated.
 func (factory *RouterControllerFactory) Create(plugin router.Plugin) *controller.RouterController {
 	routeEventQueue := oscache.NewEventQueue(cache.MetaNamespaceKeyFunc)
 	cache.NewReflector(&routeLW{
@@ -59,10 +61,16 @@ func (factory *RouterControllerFactory) Create(plugin router.Plugin) *controller
 
 	endpointsEventQueue := oscache.NewEventQueue(cache.MetaNamespaceKeyFunc)
 	cache.NewReflector(&endpointsLW{
-		client:    factory.KClient,
+		client:    factory.EndpointsNamespacer,
 		namespace: factory.Namespace,
 		// we do not scope endpoints by labels or fields because the route labels != endpoints labels
 	}, &kapi.Endpoints{}, endpointsEventQueue, factory.ResyncInterval).Run()
+
+	svcStore := cache.NewStore(cache.MetaNamespaceKeyFunc)
+	cache.NewReflector(&serviceLW{
+		client:    factory.ServicesNamespacer,
+		namespace: factory.Namespace,
+	}, &kapi.Service{}, svcStore, factory.ResyncInterval).Run()
 
 	return &controller.RouterController{
 		Plugin: plugin,
@@ -79,6 +87,15 @@ func (factory *RouterControllerFactory) Create(plugin router.Plugin) *controller
 				return watch.Error, nil, err
 			}
 			return eventType, obj.(*routeapi.Route), nil
+		},
+		LookupService: func(endpoints *kapi.Endpoints) (*kapi.Service, error) {
+			if rawSvc, ok, err := svcStore.Get(endpoints); err != nil {
+				return nil, err
+			} else if !ok {
+				return nil, nil
+			} else {
+				return rawSvc.(*kapi.Service), nil
+			}
 		},
 		Namespaces: factory.Namespaces,
 		// check namespaces a bit more often than we resync events, so that we aren't always waiting
@@ -107,7 +124,7 @@ func (factory *RouterControllerFactory) CreateNotifier(changed func()) RoutesByH
 	endpointStore := cache.NewStore(keyFn)
 	endpointsEventQueue := oscache.NewEventQueueForStore(keyFn, endpointStore)
 	cache.NewReflector(&endpointsLW{
-		client:    factory.KClient,
+		client:    factory.EndpointsNamespacer,
 		namespace: factory.Namespace,
 		// we do not scope endpoints by labels or fields because the route labels != endpoints labels
 	}, &kapi.Endpoints{}, endpointsEventQueue, factory.ResyncInterval).Run()
@@ -219,4 +236,20 @@ func (lw *endpointsLW) List() (runtime.Object, error) {
 
 func (lw *endpointsLW) Watch(resourceVersion string) (watch.Interface, error) {
 	return lw.client.Endpoints(lw.namespace).Watch(lw.label, lw.field, resourceVersion)
+}
+
+// serviceLW is a list watcher for routes.
+type serviceLW struct {
+	client    kclient.ServicesNamespacer
+	label     labels.Selector
+	field     fields.Selector
+	namespace string
+}
+
+func (lw *serviceLW) List() (runtime.Object, error) {
+	return lw.client.Services(lw.namespace).List(labels.Everything(), fields.Everything())
+}
+
+func (lw *serviceLW) Watch(resourceVersion string) (watch.Interface, error) {
+	return lw.client.Services(lw.namespace).Watch(lw.label, lw.field, resourceVersion)
 }

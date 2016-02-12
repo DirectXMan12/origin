@@ -227,7 +227,7 @@ func poolName(endpointsNamespace, endpointsName string) string {
 // HandleEndpoints processes watch events on the Endpoints resource and
 // creates and deletes pools and pool members in response.
 func (p *F5Plugin) HandleEndpoints(eventType watch.EventType,
-	endpoints *kapi.Endpoints) error {
+	endpoints *kapi.Endpoints, service *kapi.Service) error {
 
 	glog.V(4).Infof("Processing %d Endpoints for Name: %v (%v)",
 		len(endpoints.Subsets), endpoints.Name, eventType)
