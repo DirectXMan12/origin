@@ -14,6 +14,7 @@ import (
 	ktypes "k8s.io/kubernetes/pkg/types"
 	"k8s.io/kubernetes/pkg/util/sets"
 	"k8s.io/kubernetes/pkg/watch"
+	"k8s.io/kubernetes/pkg/util/unidling"
 
 	routeapi "github.com/openshift/origin/pkg/route/api"
 )
@@ -134,7 +135,7 @@ func NewTemplatePlugin(cfg TemplatePluginConfig) (*TemplatePlugin, error) {
 }
 
 // HandleEndpoints processes watch events on the Endpoints resource.
-func (p *TemplatePlugin) HandleEndpoints(eventType watch.EventType, endpoints *kapi.Endpoints) error {
+func (p *TemplatePlugin) HandleEndpoints(eventType watch.EventType, endpoints *kapi.Endpoints, service *kapi.Service) error {
 	key := endpointsKey(endpoints)
 
 	glog.V(4).Infof("Processing %d Endpoints for Name: %v (%v)", len(endpoints.Subsets), endpoints.Name, eventType)
@@ -150,7 +151,7 @@ func (p *TemplatePlugin) HandleEndpoints(eventType watch.EventType, endpoints *k
 	switch eventType {
 	case watch.Added, watch.Modified:
 		glog.V(4).Infof("Modifying endpoints for %s", key)
-		routerEndpoints := createRouterEndpoints(endpoints, !p.IncludeUDP)
+		routerEndpoints := createRouterEndpoints(endpoints, !p.IncludeUDP, service)
 		key := endpointsKey(endpoints)
 		commit := p.Router.AddEndpoints(key, routerEndpoints)
 		if commit {
@@ -221,11 +222,41 @@ func peerEndpointsKey(namespacedName ktypes.NamespacedName) string {
 }
 
 // createRouterEndpoints creates openshift router endpoints based on k8s endpoints
-func createRouterEndpoints(endpoints *kapi.Endpoints, excludeUDP bool) []Endpoint {
+func createRouterEndpoints(endpoints *kapi.Endpoints, excludeUDP bool, service *kapi.Service) []Endpoint {
+	// check if this service is currently idled
+	subsets := endpoints.Subsets
+	if _, ok := endpoints.Annotations[unidling.IdledAtAnnotation]; ok && len(endpoints.Subsets) == 0 {
+		if service == nil {
+			// TODO: actually return an error
+			glog.Errorf("no idled service found corresponding to idled endpoints %v/%v", endpoints.Namespace, endpoints.Name)
+			return []Endpoint{}
+		}
+
+		svcSubset := kapi.EndpointSubset{
+			// TODO: is just ClusterIP ok here?
+			Addresses: []kapi.EndpointAddress{
+				{
+					IP: service.Spec.ClusterIP,
+				},
+			},
+		}
+
+		for _, port := range service.Spec.Ports {
+			endptPort := kapi.EndpointPort{
+				Name: port.Name,
+				Port: port.Port,
+				Protocol: port.Protocol,
+			}
+			svcSubset.Ports = append(svcSubset.Ports, endptPort)
+		}
+
+		subsets = []kapi.EndpointSubset{svcSubset}
+	}
+
 	out := make([]Endpoint, 0, len(endpoints.Subsets)*4)
 
 	// TODO: review me for sanity
-	for _, s := range endpoints.Subsets {
+	for _, s := range subsets {
 		for _, p := range s.Ports {
 			if excludeUDP && p.Protocol == kapi.ProtocolUDP {
 				continue

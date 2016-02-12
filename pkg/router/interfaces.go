@@ -12,7 +12,7 @@ import (
 // for the Routes and Endpoints resources to.
 type Plugin interface {
 	HandleRoute(watch.EventType, *routeapi.Route) error
-	HandleEndpoints(watch.EventType, *kapi.Endpoints) error
+	HandleEndpoints(watch.EventType, *kapi.Endpoints, *kapi.Service) error
 	// If sent, filter the list of accepted routes and endpoints to this set
 	HandleNamespaces(namespaces sets.String) error
 	SetLastSyncProcessed(processed bool) error
