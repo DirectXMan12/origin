@@ -49,9 +49,8 @@ const (
 	updateCmd   = "update"
 )
 
-func (plugin *OsdnNode) getExecutable() string {
-	return "openshift-sdn-ovs"
-}
+// Executable is the name of the script that runs code to change the OVS rules at runtime
+var PluginExecutable = "openshift-sdn-ovs"
 
 func (plugin *OsdnNode) Init(host knetwork.Host, _ componentconfig.HairpinMode, _ string) error {
 	return nil
@@ -188,7 +187,7 @@ func (plugin *OsdnNode) SetUpPod(namespace string, name string, id kubeletTypes.
 		return err
 	}
 
-	out, err := exec.Command(plugin.getExecutable(), setUpCmd, id.ID, vnidstr, ingressStr, egressStr, fmt.Sprintf("%t", macvlan)).CombinedOutput()
+	out, err := exec.Command(PluginExecutable, setUpCmd, id.ID, vnidstr, ingressStr, egressStr, fmt.Sprintf("%t", macvlan)).CombinedOutput()
 	glog.V(5).Infof("SetUpPod network plugin output: %s, %v", string(out), err)
 
 	if isScriptError(err) {
@@ -200,7 +199,7 @@ func (plugin *OsdnNode) SetUpPod(namespace string, name string, id kubeletTypes.
 
 func (plugin *OsdnNode) TearDownPod(namespace string, name string, id kubeletTypes.ContainerID) error {
 	// The script's teardown functionality doesn't need the VNID
-	out, err := exec.Command(plugin.getExecutable(), tearDownCmd, id.ID, "-1", "-1", "-1").CombinedOutput()
+	out, err := exec.Command(PluginExecutable, tearDownCmd, id.ID, "-1", "-1", "-1").CombinedOutput()
 	glog.V(5).Infof("TearDownPod network plugin output: %s, %v", string(out), err)
 
 	if isScriptError(err) {
@@ -224,7 +223,7 @@ func (plugin *OsdnNode) UpdatePod(namespace string, name string, id kubeletTypes
 		return err
 	}
 
-	out, err := exec.Command(plugin.getExecutable(), updateCmd, string(id), vnidstr).CombinedOutput()
+	out, err := exec.Command(PluginExecutable, updateCmd, string(id), vnidstr).CombinedOutput()
 	glog.V(5).Infof("UpdatePod network plugin output: %s, %v", string(out), err)
 
 	if isScriptError(err) {

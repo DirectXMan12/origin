@@ -121,6 +121,9 @@ type NodeNetworkConfig struct {
 	NetworkPluginName string `json:"networkPluginName,omitempty"`
 	// Maximum transmission unit for the network packets
 	MTU uint32 `json:"mtu"`
+	// This governs whether the port instrumentation rules are added when the OpenShift networking plugins are used.  If set,
+	// the port metrics are disabled.
+	DisablePortMetrics bool `json:"disablePortMetrics,omitempty"`
 }
 
 // DockerConfig holds Docker related configuration options.

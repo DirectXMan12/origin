@@ -175,6 +175,9 @@ type NodeNetworkConfig struct {
 	NetworkPluginName string
 	// Maximum transmission unit for the network packets
 	MTU uint32
+	// This governs whether the port instrumentation rules are added when the OpenShift networking plugins are used.  If set,
+	// the port metrics are disabled.
+	DisablePortMetrics bool
 }
 
 // NodeAuthConfig holds authn/authz configuration options
