@@ -92,6 +92,11 @@ func (node *OsdnNode) Start() error {
 		return err
 	}
 
+	err = node.EndpointStartNode()
+	if err != nil {
+		return err
+	}
+
 	if node.multitenant {
 		if err = node.VnidStartNode(); err != nil {
 			return err

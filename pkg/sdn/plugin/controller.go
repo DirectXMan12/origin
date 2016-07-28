@@ -253,8 +253,8 @@ func (plugin *OsdnNode) SetupSDN(localSubnetCIDR, clusterNetworkCIDR, servicesNe
 	otx.AddFlow("table=5, priority=300, ip, nw_dst=%s, actions=output:2", localSubnetGateway)
 	otx.AddFlow("table=5, priority=200, arp, nw_dst=%s, actions=goto_table:6", localSubnetCIDR)
 	otx.AddFlow("table=5, priority=200, ip, nw_dst=%s, actions=goto_table:7", localSubnetCIDR)
-	otx.AddFlow("table=5, priority=100, arp, nw_dst=%s, actions=goto_table:8", clusterNetworkCIDR)
-	otx.AddFlow("table=5, priority=100, ip, nw_dst=%s, actions=goto_table:8", clusterNetworkCIDR)
+	otx.AddFlow("table=5, priority=100, arp, nw_dst=%s, actions=goto_table:9", clusterNetworkCIDR)
+	otx.AddFlow("table=5, priority=100, ip, nw_dst=%s, actions=goto_table:9", clusterNetworkCIDR)
 	otx.AddFlow("table=5, priority=0, ip, actions=output:2")
 	otx.AddFlow("table=5, priority=0, arp, actions=drop")
 
@@ -263,14 +263,19 @@ func (plugin *OsdnNode) SetupSDN(localSubnetCIDR, clusterNetworkCIDR, servicesNe
 	otx.AddFlow("table=6, priority=0, actions=output:3")
 
 	// Table 7: IP to container; filled in by openshift-sdn-ovs
-	// eg, "table=7, priority=100, reg0=0, ip, nw_dst=${ipaddr}, actions=output:${ovs_port}"
-	// eg, "table=7, priority=100, reg0=${tenant_id}, ip, nw_dst=${ipaddr}, actions=output:${ovs_port}"
+	// eg, "table=7, priority=100, reg0=0, ip, nw_dst=${ipaddr}, actions=load:${ovs_port}->NXM_NX_REG1[0..31], goto_table:8"
+	// eg, "table=7, priority=100, reg0=${tenant_id}, ip, nw_dst=${ipaddr}, actions=load:${ovs_port}->NXM_NX_REG1[0..31], goto_table:8"
 	otx.AddFlow("table=7, priority=0, actions=output:3")
 
-	// Table 8: to remote container; filled in by AddHostSubnetRules()
-	// eg, "table=8, priority=100, arp, nw_dst=${remote_subnet_cidr}, actions=move:NXM_NX_REG0[]->NXM_NX_TUN_ID[0..31], set_field:${remote_node_ip}->tun_dst,output:1"
-	// eg, "table=8, priority=100, ip, nw_dst=${remote_subnet_cidr}, actions=move:NXM_NX_REG0[]->NXM_NX_TUN_ID[0..31], set_field:${remote_node_ip}->tun_dst,output:1"
-	otx.AddFlow("table=8, priority=0, actions=drop")
+	// Table 8: IP to container, monitoring rules; filled in by openshift-sdn-ovs
+	// eg, "table=8, priority=100, tcp, nw_dst=${ipaddr}, tcp_dst=$port, actions=output:NXM_NX_REG1[0..31]"
+	// eg, "table=8, priority=100, udp, nw_dst=${ipaddr}, udp_dst=$port, actions=output:NXM_NX_REG1[0..31]"
+	otx.AddFlow("table=8, priority=0, actions=output:NXM_NX_REG1[0..31]")
+
+	// Table 9: to remote container; filled in by AddHostSubnetRules()
+	// eg, "table=9, priority=100, arp, nw_dst=${remote_subnet_cidr}, actions=move:NXM_NX_REG0[]->NXM_NX_TUN_ID[0..31], set_field:${remote_node_ip}->tun_dst,output:1"
+	// eg, "table=9, priority=100, ip, nw_dst=${remote_subnet_cidr}, actions=move:NXM_NX_REG0[]->NXM_NX_TUN_ID[0..31], set_field:${remote_node_ip}->tun_dst,output:1"
+	otx.AddFlow("table=9, priority=0, actions=drop")
 
 	err = otx.EndTransaction()
 	if err != nil {
@@ -335,8 +340,8 @@ func (plugin *OsdnNode) AddHostSubnetRules(subnet *osapi.HostSubnet) error {
 	otx := ovs.NewTransaction(kexec.New(), BR)
 
 	otx.AddFlow("table=1, priority=100, tun_src=%s, actions=goto_table:5", subnet.HostIP)
-	otx.AddFlow("table=8, priority=100, arp, nw_dst=%s, actions=move:NXM_NX_REG0[]->NXM_NX_TUN_ID[0..31],set_field:%s->tun_dst,output:1", subnet.Subnet, subnet.HostIP)
-	otx.AddFlow("table=8, priority=100, ip, nw_dst=%s, actions=move:NXM_NX_REG0[]->NXM_NX_TUN_ID[0..31],set_field:%s->tun_dst,output:1", subnet.Subnet, subnet.HostIP)
+	otx.AddFlow("table=9, priority=100, arp, nw_dst=%s, actions=move:NXM_NX_REG0[]->NXM_NX_TUN_ID[0..31],set_field:%s->tun_dst,output:1", subnet.Subnet, subnet.HostIP)
+	otx.AddFlow("table=9, priority=100, ip, nw_dst=%s, actions=move:NXM_NX_REG0[]->NXM_NX_TUN_ID[0..31],set_field:%s->tun_dst,output:1", subnet.Subnet, subnet.HostIP)
 
 	err := otx.EndTransaction()
 	if err != nil {
@@ -350,8 +355,8 @@ func (plugin *OsdnNode) DeleteHostSubnetRules(subnet *osapi.HostSubnet) error {
 
 	otx := ovs.NewTransaction(kexec.New(), BR)
 	otx.DeleteFlows("table=1, tun_src=%s", subnet.HostIP)
-	otx.DeleteFlows("table=8, ip, nw_dst=%s", subnet.Subnet)
-	otx.DeleteFlows("table=8, arp, nw_dst=%s", subnet.Subnet)
+	otx.DeleteFlows("table=9, ip, nw_dst=%s", subnet.Subnet)
+	otx.DeleteFlows("table=9, arp, nw_dst=%s", subnet.Subnet)
 	err := otx.EndTransaction()
 	if err != nil {
 		return fmt.Errorf("Error deleting OVS flows for subnet: %v, %v", subnet, err)
