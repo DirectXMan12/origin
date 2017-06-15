@@ -86,6 +86,11 @@ func (c *MasterConfig) NewKubernetesControllerInitalizers(kc *kubernetes.MasterC
 		ret[name] = initFn
 	}
 
+	// NB: this is funky -- it's actually a Kubernetes controller, but we run it as an OpenShift controller in order
+	// to get a handle on OpenShift clients, so that our delegating scales getter can work.  Ergo,
+	// we need to just not do anything right now.
+	delete(ret, "horizontalpodautoscaling")
+
 	return ret, nil
 }
 
@@ -254,5 +259,11 @@ func (c *MasterConfig) NewOpenshiftControllerInitializers() (map[string]controll
 		PrivilegedRBACClient: c.PrivilegedLoopbackKubernetesClientsetInternal.Rbac(),
 	}
 	ret["openshift.io/origin-to-rbac"] = originToRBACSyncController.RunController
+
+	hpaController := kubernetes.HorizontalPodAutoscalerControllerConfig{
+		HeapsterNamespace: c.Options.PolicyConfig.OpenShiftInfrastructureNamespace,
+	}
+	ret["horizontalpodautoscaling"] = hpaController.RunController
+
 	return ret, nil
 }

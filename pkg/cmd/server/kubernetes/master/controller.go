@@ -13,6 +13,8 @@ import (
 	kclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/cloudprovider"
 	nodecontroller "k8s.io/kubernetes/pkg/controller/node"
+	hpacontroller "k8s.io/kubernetes/pkg/controller/podautoscaler"
+	hpametrics "k8s.io/kubernetes/pkg/controller/podautoscaler/metrics"
 	servicecontroller "k8s.io/kubernetes/pkg/controller/service"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/plugin/pkg/scheduler"
@@ -21,6 +23,8 @@ import (
 	"k8s.io/kubernetes/plugin/pkg/scheduler/factory"
 
 	"github.com/golang/glog"
+	osclient "github.com/openshift/origin/pkg/client"
+	oscontroller "github.com/openshift/origin/pkg/cmd/server/origin/controller"
 )
 
 type NodeControllerConfig struct {
@@ -142,6 +146,40 @@ func (c *SchedulerControllerConfig) RunController(ctx kubecontroller.ControllerC
 
 	s := scheduler.New(config)
 	go s.Run()
+
+	return true, nil
+}
+
+// NB: this is funky -- it's actually a Kubernetes controller, but we run it as an OpenShift controller in order
+// to get a handle on OpenShift clients, so that our delegating scales getter can work.
+
+type HorizontalPodAutoscalerControllerConfig struct {
+	HeapsterNamespace string
+}
+
+func (c *HorizontalPodAutoscalerControllerConfig) RunController(ctx oscontroller.ControllerContext) (bool, error) {
+	hpaClient := ctx.KubeControllerContext.ClientBuilder.ClientOrDie("horizontal-pod-autoscaler")
+	hpaOriginClient := ctx.ClientBuilder.DeprecatedOpenshiftClientOrDie("horizontal-pod-autoscaler")
+
+	metricsClient := hpametrics.NewHeapsterMetricsClient(
+		hpaClient,
+		c.HeapsterNamespace,
+		"https",
+		"heapster",
+		"",
+	)
+	replicaCalc := hpacontroller.NewReplicaCalculator(metricsClient, hpaClient.Core())
+
+	delegatingScalesGetter := osclient.NewDelegatingScaleNamespacer(hpaOriginClient, hpaClient.ExtensionsV1beta1())
+
+	go hpacontroller.NewHorizontalController(
+		ctx.KubeControllerContext.ClientBuilder.ClientGoClientOrDie("horizontal-pod-autoscaler").Core(),
+		delegatingScalesGetter,
+		hpaClient.Autoscaling(),
+		replicaCalc,
+		ctx.KubeControllerContext.InformerFactory.Autoscaling().V1().HorizontalPodAutoscalers(),
+		ctx.KubeControllerContext.Options.HorizontalPodAutoscalerSyncPeriod.Duration,
+	).Run(ctx.Stop)
 
 	return true, nil
 }
