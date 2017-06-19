@@ -1,5 +1,6 @@
 #!/usr/bin/env python2
 
+import sys
 import shutil
 import distutils.dir_util as dir_util
 import subprocess
@@ -8,8 +9,16 @@ import tempfile
 import atexit
 import os
 import os.path
-
 import argparse
+import logging
+
+
+LOG = logging.getLogger("hack/build-local-images")
+if os.getenv('OS_DEBUG'):
+    logging.basicConfig(level='DEBUG')
+else:
+    logging.basicConfig(level='INFO')
+
 
 PARSER = argparse.ArgumentParser(
     description="Quickly re-build images depending on OpenShift Origin build artifacts.",
@@ -168,12 +177,11 @@ def add_to_context(CONTEXT_DIR, source, destination, container_destination):
     to place it in the container file-
     sytem at the correct destination.
     """
-    debug(
-        "Adding file:\n\tfrom {}\n\tto {}"
-        "\n\tincluding in container at {}".format(
-          source,
-          os.path.join(CONTEXT_DIR, destination),
-          container_destination))
+    LOG.debug("Adding file:\n\tfrom %s\n\tto %s"
+              "\n\tincluding in container at %s",
+              source,
+              os.path.join(CONTEXT_DIR, destination),
+              container_destination)
     absolute_destination = os.path.abspath(
             os.path.join(CONTEXT_DIR, destination))
     if os.path.isdir(source):
@@ -185,11 +193,6 @@ def add_to_context(CONTEXT_DIR, source, destination, container_destination):
             destination, container_destination))
 
 
-def debug(message):
-    if os.getenv("OS_DEBUG"):
-        print "[DEBUG] {}".format(message)
-
-
 OS_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 OS_BIN_PATH = os.path.join(
         OS_ROOT, "_output", "local", "bin", "linux", "amd64")
@@ -198,7 +201,7 @@ OS_IMAGE_PATH = os.path.join(OS_ROOT, "images")
 CONTEXT_DIR = tempfile.mkdtemp()
 atexit.register(shutil.rmtree, CONTEXT_DIR)
 
-debug("Created temporary context dir at {}".format(CONTEXT_DIR))
+LOG.debug("Created temporary context dir at %s", CONTEXT_DIR)
 os.mkdir(os.path.join(CONTEXT_DIR, "bin"))
 os.mkdir(os.path.join(CONTEXT_DIR, "src"))
 
@@ -208,7 +211,7 @@ for image in IMAGE_CONFIG:
         continue
 
     build_occurred = True
-    print "[INFO] Building {}...".format(image)
+    LOG.info("Building %s...", image)
     with open(os.path.join(CONTEXT_DIR, "Dockerfile"), "w+") as dockerfile:
         dockerfile.write("FROM {}\n".format(full_name(image)))
 
@@ -230,8 +233,8 @@ for image in IMAGE_CONFIG:
             container_destination=config["files"][file]
         )
 
-    debug("Initiating Docker build with Dockerfile"
-          ":\n{}".format(open(os.path.join(CONTEXT_DIR, "Dockerfile")).read()))
+    LOG.debug("Initiating Docker build with Dockerfile"
+              ":\n%s", open(os.path.join(CONTEXT_DIR, "Dockerfile")).read())
     subprocess.call(
             ["docker", "build", "-t", full_name(image), "."], cwd=CONTEXT_DIR)
 
@@ -239,10 +242,9 @@ for image in IMAGE_CONFIG:
     shutil.rmtree(os.path.join(CONTEXT_DIR, "src", image))
 
 if not build_occurred and len(ARGS.images) > 1:
-    print ("[ERROR] The provided image names "
-           "({}) did not match any buildable images.".format(
-            ", ".join(ARGS.images)))
-    print "[ERROR] This script knows how to build:\n\t{}".format(
-        "\n\t".join(map(full_name, IMAGE_CONFIG.keys()))
-    )
-    exit(1)
+    LOG.error("The provided image names (%s) "
+              "did not match any buildable images.",
+              ", ".join(ARGS.images))
+    LOG.error("This script knows how to build:\n\t%s",
+              "\n\t".join(map(full_name, IMAGE_CONFIG.keys())))
+    sys.exit(1)
