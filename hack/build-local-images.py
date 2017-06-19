@@ -6,7 +6,6 @@ import distutils.dir_util as dir_util
 import subprocess
 import tempfile
 
-import atexit
 import os
 import os.path
 import argparse
@@ -20,9 +19,206 @@ else:
     logging.basicConfig(level='INFO')
 
 
-PARSER = argparse.ArgumentParser(
-    description="Quickly re-build images depending on OpenShift Origin build artifacts.",
-    epilog="""
+class ImageManager(object):
+    UNPREFIXED_IMAGES = set(["node, openvswitch"])
+    CONFIG_DEFAULTS = {
+        'binaries': {'openshift': '/usr/bin/openshift'},
+        'files': {},
+    }
+    BASE_IMAGE_CONFIG = {
+        "directory": "origin",
+        "binaries": {"openshift": "/usr/bin/openshift"},
+    }
+    IMAGE_CONFIGS = {
+        "deployer": {"directory": "deployer"},
+        "recycler": {"directory": "recycler"},
+        "docker-builder": {"directory": "builder/docker/docker-builder"},
+        "sti-builder": {"directory": "builder/docker/sti-builder"},
+        "f5-router": {"directory": "router/f5"},
+        "haproxy-router": {
+            "directory": "router/haproxy",
+            "files": {
+                ".": "/var/lib/haproxy"
+            }
+        },
+        "keepalived-ipfailover": {
+            "directory": "ipfailover/keepalived",
+            "files": {
+                ".": "/var/lib/ipfailover/keepalived"
+            }
+        },
+        "node": {"directory": "node"},
+        "openvswitch": {"directory": "openvswitch"},
+    }
+
+    def __init__(self, requested_images=[], prefix=None):
+        self._images = set(requested_images)
+
+        # handle when prefix is missing or env var is missing
+        if prefix is None:
+            prefix = 'openshift/origin'
+
+        self._namespace, self._prefix = prefix.split('/', 2)
+
+    def _image_rebuild_requested(self, image):
+        """
+        Check if an image should be rebuilt.
+
+        An image rebuild is requested if the user provides the image name
+        or image suffix explicitly.
+        """
+
+        return (image in self._images) or self.full_name(image) in self._images
+
+    def full_name(self, image):
+        """
+        Convert a short image name into a full image name.
+
+        The full name of the image will contain the image namespace as well as
+        the prefix, if applicable.
+        """
+        if image in self.UNPREFIXED_IMAGES or image == self._prefix:
+            return "{}/{}".format(self._namespace, image)
+
+        return "{}/{}-{}".format(self._namespace, self._prefix, image)
+
+    def config_for(self, image):
+        """
+        Generate the build config for an image.
+
+        The build config for an image contains instructions for which files
+        go into a built image, and where.  Information is taken from
+        IMAGE_CONFIGS, and filled out with CONFIG_DEFAULTS.
+        """
+        base_config = self.IMAGE_CONFIGS.get(image)
+        if base_config is None:
+            return None
+
+        res = {k: v for (k, v) in base_config.items()}
+        for (k, v) in self.CONFIG_DEFAULTS.items():
+            res.setdefault(k, v)
+
+        return res
+
+    def requested_images(self):
+        """Yield all images requested to be rebuilt, with associate configs."""
+        # the base image
+        if self._image_rebuild_requested(self._prefix) or self.rebuild_all:
+            yield (self._prefix, self.BASE_IMAGE_CONFIG)
+
+        for name in self.IMAGE_CONFIGS:
+            if self.image_rebuild_requested(name) or self.rebuild_all:
+                yield (name, self.config_for(name))
+
+    def known_images(self):
+        """Yield all known images as short names."""
+        yield self._prefix
+        for name in self.IMAGE_CONFIGS:
+            yield name
+
+    @property
+    def rebuild_all(self):
+        """Whether or not all images should be rebuilt."""
+        return len(self._images) == 0
+
+
+class ImageBuilder(object):
+    def __init__(self, image_manager, root_dir):
+        self._mgr = image_manager
+
+        self._bin_path = os.path.join(
+            root_dir, "_output", "local", "bin", "linux", "amd64")
+        self._img_path = os.path.join(root_dir, "images")
+
+        self._context_dir = tempfile.mkdtemp()
+        LOG.debug("Created temporary context dir at %s", self._context_dir)
+        os.mkdir(os.path.join(self._context_dir, "bin"))
+        os.mkdir(os.path.join(self._context_dir, "src"))
+
+    def __enter__(self):
+        # we initialize on creation
+        pass
+
+    def _cleanup(self):
+        """Clean up the generated context directory."""
+        if self._context_dir is not None:
+            LOG.debug("Cleaning up temporary context dir at %s",
+                      self._context_dir)
+            shutil.rmtree(self._context_dir)
+            self._context_dir = None
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self._cleanup()
+
+    def __del__(self):
+        self._cleanup()
+
+    def _add_to_context(self, source, destination, container_destination):
+        """
+        Add a file to the context directory, and to the Dockerfile.
+
+        Add the given file to the context directory, and then append an ADD
+        line to the Dockerfile to place it in the container filesystem at
+        the correct destination.
+        """
+        LOG.debug("Adding file:\n\tfrom %s\n\tto %s"
+                  "\n\tincluding in container at %s",
+                  source,
+                  os.path.join(self._context_dir, destination),
+                  container_destination)
+        absolute_destination = os.path.abspath(
+                os.path.join(self._context_dir, destination))
+        if os.path.isdir(source):
+            dir_util.copy_tree(source, absolute_destination)
+        else:
+            shutil.copy(source, absolute_destination)
+
+        out_path = os.path.join(self._context_dir, "Dockerfile")
+        with open(out_path, "a") as dockerfile:
+            dockerfile.write("ADD {} {}\n".format(
+                destination, container_destination))
+
+    def build_image(self, image, config):
+        """Build an the given short-named image using the given config."""
+        full_name = self._mgr.full_name(image)
+
+        dockerfile_path = os.path.join(self._context_dir, "Dockerfile")
+        with open(dockerfile_path, "w+") as dockerfile:
+            dockerfile.write("FROM {}\n".format(full_name))
+
+        for binary in config.get("binaries", []):
+            self._add_to_context(
+                source=os.path.join(self._bin_path, binary),
+                destination=os.path.join("bin", binary),
+                container_destination=config["binaries"][binary]
+            )
+
+        os.mkdir(os.path.join(self._context_dir, "src", image))
+        for extra_file in config.get("files", []):
+            source_path = os.path.join(
+                    self._img_path, config["directory"], extra_file),
+
+            self._add_to_context(
+                source=source_path,
+                destination=os.path.join("src", image, extra_file),
+                container_destination=config["files"][extra_file]
+            )
+
+        LOG.debug("Initiating Docker build with Dockerfile:\n%s",
+                  open(os.path.join(self._context_dir, "Dockerfile")).read())
+        subprocess.call(
+                ["docker", "build", "-t", full_name, "."],
+                cwd=self._context_dir)
+
+        os.remove(os.path.join(self._context_dir, "Dockerfile"))
+        shutil.rmtree(os.path.join(self._context_dir, "src", image))
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Quickly re-build images depending on "
+                    "OpenShift Origin build artifacts.",
+        epilog="""
 This script re-builds OpenShift Origin images quickly. It is intended
 to be used by developers for quick, iterative development of images
 that depend on binaries, RPMs, or other artifacts that the Origin build
@@ -51,200 +247,31 @@ Examples:
 
   # build with a different image prefix
   OS_IMAGE_PREFIX=openshift3/ose build-local-images.sh
-""",
-    formatter_class=argparse.RawDescriptionHelpFormatter,
-)
+    """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
 
-PARSER.add_argument("images", metavar="IMAGE", nargs="*",
-                    help="images to rebuild (e.g. f5-router), or all if no "
-                    "specific images are listed")
-ARGS = PARSER.parse_args()
+    parser.add_argument("images", metavar="IMAGE", nargs="*",
+                        help="images to rebuild (e.g. f5-router), or all if "
+                        "no specific images are listed")
+    args = parser.parse_args()
 
-OS_IMAGE_PREFIX = os.getenv("OS_IMAGE_PREFIX", "openshift/origin")
-IMAGE_NAMESPACE, IMAGE_PREFIX = OS_IMAGE_PREFIX.split("/", 2)
+    openshift_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), ".."))
 
-REBUILD_ALL = len(ARGS.images) == 0
+    manager = ImageManager(args.images, os.getenv("OS_IMAGE_PREFIX"))
+    builder = ImageBuilder(manager, openshift_root)
 
-IMAGE_CONFIG = {
-    IMAGE_PREFIX: {
-        "directory": "origin",
-        "binaries": {
-            "openshift": "/usr/bin/openshift"
-        },
-        "files": {}
-    },
-    "deployer": {
-        "directory": "deployer",
-        "binaries": {
-            "openshift": "/usr/bin/openshift"
-        },
-        "files": {}
-    },
-    "recycler": {
-        "directory": "recycler",
-        "binaries": {
-            "openshift": "/usr/bin/openshift"
-        },
-        "files": {}
-    },
-    "docker-builder": {
-        "directory": "builder/docker/docker-builder",
-        "binaries": {
-            "openshift": "/usr/bin/openshift"
-        },
-        "files": {}
-    },
-    "sti-builder": {
-        "directory": "builder/docker/sti-builder",
-        "binaries": {
-            "openshift": "/usr/bin/openshift"
-        },
-        "files": {}
-    },
-    "f5-router": {
-        "directory": "router/f5",
-        "binaries": {
-            "openshift": "/usr/bin/openshift"
-        },
-        "files": {}
-    },
-    "haproxy-router": {
-        "directory": "router/haproxy",
-        "binaries": {
-            "openshift": "/usr/bin/openshift"
-        },
-        "files": {
-            ".": "/var/lib/haproxy"
-        }
-    },
-    "keepalived-ipfailover": {
-        "directory": "ipfailover/keepalived",
-        "binaries": {
-            "openshift": "/usr/bin/openshift"
-        },
-        "files": {
-            ".": "/var/lib/ipfailover/keepalived"
-        }
-    },
-    "node": {
-        "directory": "node",
-        "binaries": {
-            "openshift": "/usr/bin/openshift"
-        },
-        "files": {}
-    },
-    "openvswitch": {
-        "directory": "openvswitch",
-        "binaries": {
-            "openshift": "/usr/bin/openshift"
-        },
-        "files": {}
-    }
-}
+    build_occurred = False
+    for image, config in manager.requested_images():
+        build_occurred = True
+        LOG.info("Building %s...", image)
+        builder.build_image(image, config)
 
-
-def image_rebuild_requested(image):
-    """
-    An image rebuild is requested if the
-    user provides the image name or image
-    suffix explicitly or does not provide
-    any explicit requests.
-    """
-
-    # if we didn't request any images, we're rebuilding them all
-    if REBUILD_ALL:
-        return True
-
-    return (image in ARGS.images) or full_name(image) in ARGS.images
-
-
-def full_name(image):
-    """
-    The full name of the image will contain
-    the image namespace as well as the pre-
-    fix, if applicable.
-    """
-    if image in ["node", "openvswitch", IMAGE_PREFIX]:
-        return "{}/{}".format(IMAGE_NAMESPACE, image)
-
-    return "{}/{}-{}".format(IMAGE_NAMESPACE, IMAGE_PREFIX, image)
-
-
-def add_to_context(context_dir, source, destination, container_destination):
-    """
-    Add a file to the context directory
-    and add an entry to the Dockerfile
-    to place it in the container file-
-    sytem at the correct destination.
-    """
-    LOG.debug("Adding file:\n\tfrom %s\n\tto %s"
-              "\n\tincluding in container at %s",
-              source,
-              os.path.join(context_dir, destination),
-              container_destination)
-    absolute_destination = os.path.abspath(
-            os.path.join(context_dir, destination))
-    if os.path.isdir(source):
-        dir_util.copy_tree(source, absolute_destination)
-    else:
-        shutil.copy(source, absolute_destination)
-    with open(os.path.join(context_dir, "Dockerfile"), "a") as dockerfile:
-        dockerfile.write("ADD {} {}\n".format(
-            destination, container_destination))
-
-
-OS_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-OS_BIN_PATH = os.path.join(
-        OS_ROOT, "_output", "local", "bin", "linux", "amd64")
-OS_IMAGE_PATH = os.path.join(OS_ROOT, "images")
-
-CONTEXT_DIR = tempfile.mkdtemp()
-atexit.register(shutil.rmtree, CONTEXT_DIR)
-
-LOG.debug("Created temporary context dir at %s", CONTEXT_DIR)
-os.mkdir(os.path.join(CONTEXT_DIR, "bin"))
-os.mkdir(os.path.join(CONTEXT_DIR, "src"))
-
-build_occurred = False
-for image in IMAGE_CONFIG:
-    if not image_rebuild_requested(image):
-        continue
-
-    build_occurred = True
-    LOG.info("Building %s...", image)
-    with open(os.path.join(CONTEXT_DIR, "Dockerfile"), "w+") as dockerfile:
-        dockerfile.write("FROM {}\n".format(full_name(image)))
-
-    config = IMAGE_CONFIG[image]
-    for binary in config.get("binaries", []):
-        add_to_context(
-            CONTEXT_DIR,
-            source=os.path.join(OS_BIN_PATH, binary),
-            destination=os.path.join("bin", binary),
-            container_destination=config["binaries"][binary]
-        )
-
-    os.mkdir(os.path.join(CONTEXT_DIR, "src", image))
-    for file in config.get("files", []):
-        add_to_context(
-            CONTEXT_DIR,
-            source=os.path.join(OS_IMAGE_PATH, config["directory"], file),
-            destination=os.path.join("src", image, file),
-            container_destination=config["files"][file]
-        )
-
-    LOG.debug("Initiating Docker build with Dockerfile"
-              ":\n%s", open(os.path.join(CONTEXT_DIR, "Dockerfile")).read())
-    subprocess.call(
-            ["docker", "build", "-t", full_name(image), "."], cwd=CONTEXT_DIR)
-
-    os.remove(os.path.join(CONTEXT_DIR, "Dockerfile"))
-    shutil.rmtree(os.path.join(CONTEXT_DIR, "src", image))
-
-if not build_occurred and not REBUILD_ALL:
-    LOG.error("The provided image names (%s) "
-              "did not match any buildable images.",
-              ", ".join(ARGS.images))
-    LOG.error("This script knows how to build:\n\t%s",
-              "\n\t".join(map(full_name, IMAGE_CONFIG.keys())))
-    sys.exit(1)
+    if not build_occurred and not manager.rebuild_all:
+        LOG.error("The provided image names (%s) "
+                  "did not match any buildable images.",
+                  ", ".join(args.images))
+        LOG.error("This script knows how to build:\n\t%s",
+                  "\n\t".join(manager.known_images()))
+        sys.exit(1)
