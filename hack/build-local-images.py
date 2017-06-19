@@ -63,6 +63,8 @@ ARGS = PARSER.parse_args()
 OS_IMAGE_PREFIX = os.getenv("OS_IMAGE_PREFIX", "openshift/origin")
 IMAGE_NAMESPACE, IMAGE_PREFIX = OS_IMAGE_PREFIX.split("/", 2)
 
+REBUILD_ALL = len(ARGS.images) == 0
+
 IMAGE_CONFIG = {
     IMAGE_PREFIX: {
         "directory": "origin",
@@ -149,10 +151,8 @@ def image_rebuild_requested(image):
     any explicit requests.
     """
 
-    if len(ARGS.images) == 0:
-        return False
-
-    if len(ARGS.images) == 1:
+    # if we didn't request any images, we're rebuilding them all
+    if REBUILD_ALL:
         return True
 
     return (image in ARGS.images) or full_name(image) in ARGS.images
@@ -241,7 +241,7 @@ for image in IMAGE_CONFIG:
     os.remove(os.path.join(CONTEXT_DIR, "Dockerfile"))
     shutil.rmtree(os.path.join(CONTEXT_DIR, "src", image))
 
-if not build_occurred and len(ARGS.images) > 1:
+if not build_occurred and not REBUILD_ALL:
     LOG.error("The provided image names (%s) "
               "did not match any buildable images.",
               ", ".join(ARGS.images))
