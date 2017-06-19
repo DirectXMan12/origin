@@ -1,13 +1,13 @@
 #!/usr/bin/env python2
 
-from shutil import copy, rmtree
+import shutil
 import distutils.dir_util as dir_util
-from subprocess import call
-from tempfile import mkdtemp
+import subprocess
+import tempfile
 
-from atexit import register
-from os import getenv, mkdir, remove
-from os.path import abspath, dirname, isdir, join
+import atexit
+import os
+import os.path
 
 import argparse
 
@@ -51,7 +51,7 @@ PARSER.add_argument("images", metavar="IMAGE", nargs="*",
                     "specific images are listed")
 ARGS = PARSER.parse_args()
 
-OS_IMAGE_PREFIX = getenv("OS_IMAGE_PREFIX", "openshift/origin")
+OS_IMAGE_PREFIX = os.getenv("OS_IMAGE_PREFIX", "openshift/origin")
 IMAGE_NAMESPACE, IMAGE_PREFIX = OS_IMAGE_PREFIX.split("/", 2)
 
 IMAGE_CONFIG = {
@@ -172,33 +172,35 @@ def add_to_context(CONTEXT_DIR, source, destination, container_destination):
         "Adding file:\n\tfrom {}\n\tto {}"
         "\n\tincluding in container at {}".format(
           source,
-          join(CONTEXT_DIR, destination),
+          os.path.join(CONTEXT_DIR, destination),
           container_destination))
-    absolute_destination = abspath(join(CONTEXT_DIR, destination))
-    if isdir(source):
+    absolute_destination = os.path.abspath(
+            os.path.join(CONTEXT_DIR, destination))
+    if os.path.isdir(source):
         dir_util.copy_tree(source, absolute_destination)
     else:
-        copy(source, absolute_destination)
-    with open(join(CONTEXT_DIR, "Dockerfile"), "a") as dockerfile:
+        shutil.copy(source, absolute_destination)
+    with open(os.path.join(CONTEXT_DIR, "Dockerfile"), "a") as dockerfile:
         dockerfile.write("ADD {} {}\n".format(
             destination, container_destination))
 
 
 def debug(message):
-    if getenv("OS_DEBUG"):
+    if os.getenv("OS_DEBUG"):
         print "[DEBUG] {}".format(message)
 
 
-OS_ROOT = abspath(join(dirname(__file__), ".."))
-OS_BIN_PATH = join(OS_ROOT, "_output", "local", "bin", "linux", "amd64")
-OS_IMAGE_PATH = join(OS_ROOT, "images")
+OS_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+OS_BIN_PATH = os.path.join(
+        OS_ROOT, "_output", "local", "bin", "linux", "amd64")
+OS_IMAGE_PATH = os.path.join(OS_ROOT, "images")
 
-CONTEXT_DIR = mkdtemp()
-register(rmtree, CONTEXT_DIR)
+CONTEXT_DIR = tempfile.mkdtemp()
+atexit.register(shutil.rmtree, CONTEXT_DIR)
 
 debug("Created temporary context dir at {}".format(CONTEXT_DIR))
-mkdir(join(CONTEXT_DIR, "bin"))
-mkdir(join(CONTEXT_DIR, "src"))
+os.mkdir(os.path.join(CONTEXT_DIR, "bin"))
+os.mkdir(os.path.join(CONTEXT_DIR, "src"))
 
 build_occurred = False
 for image in IMAGE_CONFIG:
@@ -207,33 +209,34 @@ for image in IMAGE_CONFIG:
 
     build_occurred = True
     print "[INFO] Building {}...".format(image)
-    with open(join(CONTEXT_DIR, "Dockerfile"), "w+") as dockerfile:
+    with open(os.path.join(CONTEXT_DIR, "Dockerfile"), "w+") as dockerfile:
         dockerfile.write("FROM {}\n".format(full_name(image)))
 
     config = IMAGE_CONFIG[image]
     for binary in config.get("binaries", []):
         add_to_context(
             CONTEXT_DIR,
-            source=join(OS_BIN_PATH, binary),
-            destination=join("bin", binary),
+            source=os.path.join(OS_BIN_PATH, binary),
+            destination=os.path.join("bin", binary),
             container_destination=config["binaries"][binary]
         )
 
-    mkdir(join(CONTEXT_DIR, "src", image))
+    os.mkdir(os.path.join(CONTEXT_DIR, "src", image))
     for file in config.get("files", []):
         add_to_context(
             CONTEXT_DIR,
-            source=join(OS_IMAGE_PATH, config["directory"], file),
-            destination=join("src", image, file),
+            source=os.path.join(OS_IMAGE_PATH, config["directory"], file),
+            destination=os.path.join("src", image, file),
             container_destination=config["files"][file]
         )
 
     debug("Initiating Docker build with Dockerfile"
-          ":\n{}".format(open(join(CONTEXT_DIR, "Dockerfile")).read()))
-    call(["docker", "build", "-t", full_name(image), "."], cwd=CONTEXT_DIR)
+          ":\n{}".format(open(os.path.join(CONTEXT_DIR, "Dockerfile")).read()))
+    subprocess.call(
+            ["docker", "build", "-t", full_name(image), "."], cwd=CONTEXT_DIR)
 
-    remove(join(CONTEXT_DIR, "Dockerfile"))
-    rmtree(join(CONTEXT_DIR, "src", image))
+    os.remove(os.path.join(CONTEXT_DIR, "Dockerfile"))
+    shutil.rmtree(os.path.join(CONTEXT_DIR, "src", image))
 
 if not build_occurred and len(ARGS.images) > 1:
     print ("[ERROR] The provided image names "
