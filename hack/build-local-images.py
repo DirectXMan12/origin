@@ -170,7 +170,7 @@ def full_name(image):
     return "{}/{}-{}".format(IMAGE_NAMESPACE, IMAGE_PREFIX, image)
 
 
-def add_to_context(CONTEXT_DIR, source, destination, container_destination):
+def add_to_context(context_dir, source, destination, container_destination):
     """
     Add a file to the context directory
     and add an entry to the Dockerfile
@@ -180,15 +180,15 @@ def add_to_context(CONTEXT_DIR, source, destination, container_destination):
     LOG.debug("Adding file:\n\tfrom %s\n\tto %s"
               "\n\tincluding in container at %s",
               source,
-              os.path.join(CONTEXT_DIR, destination),
+              os.path.join(context_dir, destination),
               container_destination)
     absolute_destination = os.path.abspath(
-            os.path.join(CONTEXT_DIR, destination))
+            os.path.join(context_dir, destination))
     if os.path.isdir(source):
         dir_util.copy_tree(source, absolute_destination)
     else:
         shutil.copy(source, absolute_destination)
-    with open(os.path.join(CONTEXT_DIR, "Dockerfile"), "a") as dockerfile:
+    with open(os.path.join(context_dir, "Dockerfile"), "a") as dockerfile:
         dockerfile.write("ADD {} {}\n".format(
             destination, container_destination))
 
