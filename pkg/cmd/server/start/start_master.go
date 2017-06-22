@@ -633,6 +633,27 @@ func (i genericInformers) ForResource(resource schema.GroupVersionResource) (kin
 	return nil, firstErr
 }
 
+func collectInitializers(oc *origin.MasterConfig, kc *kubernetes.MasterConfig) (map[string]origincontrollers.InitFunc, error) {
+	kubernetesControllerInitializers, err := oc.NewKubernetesControllerInitalizers(kc)
+	if err != nil {
+		return nil, err
+	}
+	openshiftControllerInitializers, err := oc.NewOpenshiftControllerInitializers()
+	if err != nil {
+		return nil, err
+	}
+	// Add kubernetes controllers initialized from Origin
+	for name, initFn := range kubernetesControllerInitializers {
+		if _, exists := openshiftControllerInitializers[name]; exists {
+			// don't overwrite, openshift takes priority
+			continue
+		}
+		openshiftControllerInitializers[name] = origincontrollers.FromKubeInitFunc(initFn)
+	}
+
+	return openshiftControllerInitializers, nil
+}
+
 // startControllers launches the controllers
 func startControllers(oc *origin.MasterConfig, kc *kubernetes.MasterConfig) error {
 	if oc.Options.Controllers == configapi.ControllersDisabled {
@@ -754,23 +775,6 @@ func startControllers(oc *origin.MasterConfig, kc *kubernetes.MasterConfig) erro
 
 	oc.RunSecurityAllocationController()
 
-	kubernetesControllerInitializers, err := oc.NewKubernetesControllerInitalizers(kc)
-	if err != nil {
-		return err
-	}
-	openshiftControllerInitializers, err := oc.NewOpenshiftControllerInitializers()
-	if err != nil {
-		return err
-	}
-	// Add kubernetes controllers initialized from Origin
-	for name, initFn := range kubernetesControllerInitializers {
-		if _, exists := openshiftControllerInitializers[name]; exists {
-			// don't overwrite, openshift takes priority
-			continue
-		}
-		openshiftControllerInitializers[name] = origincontrollers.FromKubeInitFunc(initFn)
-	}
-
 	allowedControllers := sets.NewString(
 		"persistentvolume-binder",
 		"attachdetach",
@@ -820,6 +824,11 @@ func startControllers(oc *origin.MasterConfig, kc *kubernetes.MasterConfig) erro
 		"openshift.io/unidling",
 		"openshift.io/ingress-ip",
 	)
+
+	openshiftControllerInitializers, err := collectInitializers(oc, kc)
+	if err != nil {
+		return err
+	}
 
 	if configapi.IsBuildEnabled(&oc.Options) {
 		allowedControllers.Insert("openshift.io/build")
