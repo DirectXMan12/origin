@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	aggclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
+
 	configapi "github.com/openshift/origin/pkg/cmd/server/apis/config"
 	"github.com/openshift/origin/pkg/cmd/server/bootstrappolicy"
 	"github.com/openshift/origin/pkg/cmd/server/crypto"
@@ -41,8 +43,17 @@ func (c *ServiceServingCertsControllerOptions) RunController(ctx ControllerConte
 		20*time.Minute,
 	)
 
+	cfg := ctx.ClientBuilder.ConfigOrDie(bootstrappolicy.InfraServiceServingCertServiceAccountName)
+	injectingController := servingcertcontroller.NewAPIServiceCertInjectingController(
+		ctx.AggregationInformers.Apiregistration().V1beta1().APIServices(),
+		aggclient.NewForConfigOrDie(cfg).Apiregistration(),
+		ca,
+		30*time.Minute,
+	)
+
 	go servingCertController.Run(1, ctx.Stop)
 	go servingCertUpdateController.Run(5, ctx.Stop)
+	go injectingController.Run(1, ctx.Stop)
 
 	return true, nil
 }

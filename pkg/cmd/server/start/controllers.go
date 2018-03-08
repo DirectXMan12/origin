@@ -55,6 +55,7 @@ func newControllerContext(
 		},
 		InternalKubeInformers:   informers.internalKubeInformers,
 		ExternalKubeInformers:   informers.GetExternalKubeInformers(),
+		AggregationInformers:    informers.aggregationInformers,
 		AppInformers:            informers.appInformers,
 		AuthorizationInformers:  informers.authorizationInformers,
 		BuildInformers:          informers.buildInformers,

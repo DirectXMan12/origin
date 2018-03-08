@@ -99,7 +99,7 @@ func (c *OpenshiftControllerConfig) GetControllerInitializers() (map[string]Init
 	ret["openshift.io/ingress-ip"] = c.IngressIPControllerConfig.RunController
 
 	ret["openshift.io/resourcequota"] = RunResourceQuotaManager
-	ret["openshift.io/cluster-quota-reconciliation"] = c.ClusterQuotaReconciliationControllerConfig.RunController
+	//ret["openshift.io/cluster-quota-reconciliation"] = c.ClusterQuotaReconciliationControllerConfig.RunController
 
 	// overrides the Kube HPA controller config, so that we can point it at an HTTPS Heapster
 	// in openshift-infra, and pass it a scale client that knows how to scale DCs

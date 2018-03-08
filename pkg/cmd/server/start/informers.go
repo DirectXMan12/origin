@@ -11,6 +11,8 @@ import (
 	kubeclientgoclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
+	aggclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
+	agginformers "k8s.io/kube-aggregator/pkg/client/informers/externalversions"
 	kclientsetinternal "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	kinternalinformers "k8s.io/kubernetes/pkg/client/informers/informers_generated/internalversion"
 
@@ -126,6 +128,7 @@ type informers struct {
 	internalKubeInformers  kinternalinformers.SharedInformerFactory
 	externalKubeInformers  kexternalinformers.SharedInformerFactory
 	clientGoKubeInformers  kubeclientgoinformers.SharedInformerFactory
+	aggregationInformers   agginformers.SharedInformerFactory
 	appInformers           appinformer.SharedInformerFactory
 	authorizationInformers authorizationinformer.SharedInformerFactory
 	buildInformers         buildinformer.SharedInformerFactory
@@ -190,6 +193,10 @@ func NewInformers(options configapi.MasterConfig) (*informers, error) {
 	if err != nil {
 		return nil, err
 	}
+	aggClient, err := aggclient.NewForConfig(clientConfig)
+	if err != nil {
+		return nil, err
+	}
 
 	// TODO find a single place to create and start informers.  During the 1.7 rebase this will come more naturally in a config object,
 	// before then we should try to eliminate our direct to storage access.  It's making us do weird things.
@@ -203,6 +210,7 @@ func NewInformers(options configapi.MasterConfig) (*informers, error) {
 		internalKubeInformers:  kinternalinformers.NewSharedInformerFactory(kubeInternal, defaultInformerResyncPeriod),
 		externalKubeInformers:  kexternalinformers.NewSharedInformerFactory(kubeExternal, defaultInformerResyncPeriod),
 		clientGoKubeInformers:  kubeclientgoinformers.NewSharedInformerFactory(kubeClientGoExternal, defaultInformerResyncPeriod),
+		aggregationInformers:   agginformers.NewSharedInformerFactory(aggClient, defaultInformerResyncPeriod),
 		appInformers:           appInformers,
 		authorizationInformers: authorizationinformer.NewSharedInformerFactory(authorizationClient, defaultInformerResyncPeriod),
 		buildInformers:         buildinformer.NewSharedInformerFactory(buildClient, defaultInformerResyncPeriod),
@@ -259,12 +267,16 @@ func (i *informers) GetTemplateInformers() templateinformer.SharedInformerFactor
 func (i *informers) GetUserInformers() userinformer.SharedInformerFactory {
 	return i.userInformers
 }
+func (i *informers) GetAggregationInformers() agginformers.SharedInformerFactory {
+	return i.aggregationInformers
+}
 
 // Start initializes all requested informers.
 func (i *informers) Start(stopCh <-chan struct{}) {
 	i.internalKubeInformers.Start(stopCh)
 	i.externalKubeInformers.Start(stopCh)
 	i.clientGoKubeInformers.Start(stopCh)
+	i.aggregationInformers.Start(stopCh)
 	i.appInformers.Start(stopCh)
 	i.authorizationInformers.Start(stopCh)
 	i.buildInformers.Start(stopCh)
@@ -279,6 +291,7 @@ func (i *informers) Start(stopCh <-chan struct{}) {
 }
 
 func (i *informers) ToGenericInformer() GenericResourceInformer {
+	// TODO(directxman12): figure out the purpose of this...
 	return newGenericInformers(
 		i.Start,
 		i.GetExternalKubeInformers(),

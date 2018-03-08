@@ -7,6 +7,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	kexternalinformers "k8s.io/client-go/informers"
+	agginformers "k8s.io/kube-aggregator/pkg/client/informers/externalversions"
 	controllerapp "k8s.io/kubernetes/cmd/kube-controller-manager/app"
 	kclientsetinternal "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	kinternalinformers "k8s.io/kubernetes/pkg/client/informers/informers_generated/internalversion"
@@ -38,6 +39,7 @@ type ControllerContext struct {
 
 	ExternalKubeInformers   kexternalinformers.SharedInformerFactory
 	InternalKubeInformers   kinternalinformers.SharedInformerFactory
+	AggregationInformers    agginformers.SharedInformerFactory
 	AppInformers            appinformer.SharedInformerFactory
 	BuildInformers          buildinformer.SharedInformerFactory
 	ImageInformers          imageinformer.SharedInformerFactory
